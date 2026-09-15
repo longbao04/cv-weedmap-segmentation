@@ -14,7 +14,7 @@
 
 WeedMap 的 sugar beet field（甜菜田）场景与导师提出的水稻/柑橘实验田任务具有共同目标：从无人机影像中区分作物、杂草和土壤/背景。可以先学习数据读取、多光谱通道、植被指数、标签可视化和分割评估，再迁移到实验田。不同作物、种植布局、传感器和拍摄条件存在差异，迁移时需要检查当地数据与标注，不能假设模型直接通用。
 
-项目已进入 synthetic U-Net baseline 阶段，在真实 WeedMap 数据之前用模拟数据跑通分割流程。项目不包含或下载真实数据，不训练真实 WeedMap。数据理解摘要见 `dataset_notes.md`，后续安排见 `project_plan.md`。
+项目已进入 synthetic U-Net baseline 的类别不平衡处理阶段，在真实 WeedMap 数据之前用模拟数据跑通分割流程。项目不包含或下载真实数据，不训练真实 WeedMap。数据理解摘要见 `dataset_notes.md`，后续安排见 `project_plan.md`，实验记录见 `synthetic_experiment_notes.md`。
 
 ## 项目结构
 
@@ -23,6 +23,7 @@ cv-weedmap-segmentation/
 ├── README.md
 ├── project_plan.md
 ├── dataset_notes.md
+├── synthetic_experiment_notes.md
 ├── inspect_dataset_structure.py
 ├── visualize_sample_placeholder.py
 ├── synthetic_dataset.py
@@ -62,6 +63,15 @@ python visualize_synthetic_prediction.py
 ```
 
 训练参数还包括 `--batch-size`（默认 16）与 `--lr`（默认 0.001）。程序自动选择 MPS 或 CPU，使用 256 张训练图像和 64 张独立种子的测试图像，每个 epoch 输出平均训练 loss 和整份测试集的指标。权重保存为 `models/synthetic_unet.pth`。
+
+默认不使用 class weights。加入 `--use-class-weights` 后使用 weighted CrossEntropyLoss，类别权重为 background=1.0、crop=2.0、weed=6.0。对少数类 weed 给予更高错误惩罚，缓解类别不平衡：
+
+```bash
+python train_synthetic_unet.py --epochs 5 --use-class-weights
+python visualize_synthetic_prediction.py --use-class-weights
+```
+
+加权模型保存为 `models/synthetic_unet_weighted.pth`，可视化通过同一开关加载对应模型；模型文件不存在时会提示文件路径和训练命令。普通与加权模型的可视化均保存到 `outputs/synthetic_prediction.png`，比较时请分别保留图片，避免覆盖。
 
 pixel accuracy 是像素级准确率，即预测正确像素占总像素的比例。IoU 是语义分割常用指标，表示某类别预测区域与真实区域的交集除以并集；mIoU 是所有类别 IoU 的平均值。若某类在预测和真值中均不存在，该类 IoU 记为 NaN，不参与平均；背景占比高时应结合 crop、weed IoU 判断效果。
 

@@ -1,5 +1,7 @@
 """比较新的模拟图像、真实 mask、预测 mask 与错误位置。"""
 
+import argparse
+
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Patch
@@ -7,17 +9,26 @@ import torch
 
 from metrics import CLASS_NAMES
 from synthetic_dataset import SyntheticWeedDataset
-from train_synthetic_unet import MODEL_PATH, select_device
+from train_synthetic_unet import MODEL_PATH, WEIGHTED_MODEL_PATH, select_device
 from unet import SmallUNet
 
 
 def main():
-    if not MODEL_PATH.is_file():
-        print("模型文件不存在，请先运行：python train_synthetic_unet.py")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--use-class-weights", action="store_true",
+                        help="加载使用类别权重训练的模型")
+    args = parser.parse_args()
+    # 训练和可视化使用相同的开关，避免把普通模型当成加权模型来比较。
+    model_path = WEIGHTED_MODEL_PATH if args.use_class_weights else MODEL_PATH
+    if not model_path.is_file():
+        train_command = "python train_synthetic_unet.py --epochs 5"
+        if args.use_class_weights:
+            train_command += " --use-class-weights"
+        print(f"模型文件不存在：{model_path}\n请先运行：{train_command}")
         return
     device = select_device()
     model = SmallUNet().to(device)
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.eval()
     # 使用不同于训练和评估的种子，生成三张新的模拟样本。
     dataset = SyntheticWeedDataset(3, seed=9999)
