@@ -30,6 +30,7 @@ cv-weedmap-segmentation/
 ├── unet.py
 ├── metrics.py
 ├── train_synthetic_unet.py
+├── plot_synthetic_history.py
 ├── visualize_synthetic_prediction.py
 ├── requirements.txt
 └── .gitignore
@@ -48,6 +49,26 @@ python -m py_compile inspect_dataset_structure.py visualize_sample_placeholder.p
 ```
 
 第一个脚本在数据缺失时会给出提示；第二个脚本使用 numpy 构造假数据，显示 image、mask 和 overlay 三张图，不读取 WeedMap 数据。
+
+## 训练过程记录与曲线
+
+训练时每个 epoch 结束后保存 history，`outputs/` 不存在时自动创建，训练结束后打印 CSV 路径：
+
+```bash
+python train_synthetic_unet.py --epochs 5
+python train_synthetic_unet.py --epochs 5 --use-class-weights
+```
+
+普通训练保存到 `outputs/synthetic_history_baseline.csv`，加权训练保存到 `outputs/synthetic_history_weighted.csv`。记录包含 epoch、average_train_loss、pixel_accuracy、mean_iou、background_iou、crop_iou 和 weed_iou；accuracy 与 IoU 使用 0～1 的数值。同一种模式重新训练会覆盖对应 history，模型保存逻辑保持不变。
+
+训练后绘制对应曲线：
+
+```bash
+python plot_synthetic_history.py
+python plot_synthetic_history.py --use-class-weights
+```
+
+脚本显示六个指标的子图，并分别保存到 `outputs/synthetic_history_baseline.png` 或 `outputs/synthetic_history_weighted.png`。CSV 不存在时会提示对应训练命令。训练曲线帮助观察 loss 是否下降、mIoU 是否提升，尤其是 weed IoU 随 epoch 的变化，便于比较普通与加权训练的效果。
 
 ## Synthetic segmentation baseline
 

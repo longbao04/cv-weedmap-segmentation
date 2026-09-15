@@ -1,5 +1,7 @@
 # 项目计划
 
+当前已新增 synthetic U-Net 训练过程记录与指标曲线可视化：每个 epoch 保存平均训练 loss、pixel accuracy、mIoU 和 background/crop/weed IoU，普通与加权训练分别输出 CSV。使用 `plot_synthetic_history.py`（加权模式传入 `--use-class-weights`）查看六个指标的曲线，重点观察 weed IoU 的变化。曲线分析结果待运行后填写到 `synthetic_experiment_notes.md`；保持 U-Net 主体结构和模型保存逻辑不变。
+
 **当前阶段：synthetic U-Net baseline 的类别不平衡处理。** 已用 NumPy 模拟数据跑通 image / mask / 模型 / 指标 / 可视化流程。Baseline 训练 5 个 epochs 后 pixel accuracy 为 93.16%，但 weed IoU 仅为 0.26%，需要关注少数类 weed 的分割效果。本阶段不下载真实数据，不训练真实 WeedMap，不修改 U-Net 主体结构。
 
 接下来比较普通 CrossEntropyLoss 与 weighted CrossEntropyLoss：保持模拟数据种子、epochs、batch-size 和 lr 一致，通过 `--use-class-weights` 启用 background=1.0、crop=2.0、weed=6.0 的权重。分别保存普通与加权模型，比较 pixel accuracy、mIoU、各类 IoU 和预测可视化，重点观察 weed IoU 是否改善。Baseline 已记录在 `synthetic_experiment_notes.md`，加权实验结果待运行后填写。

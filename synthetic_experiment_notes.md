@@ -2,6 +2,29 @@
 
 本阶段仅使用模拟数据，未下载或训练真实 WeedMap 数据。保持 U-Net 主体结构不变，比较普通 CrossEntropyLoss 和 weighted CrossEntropyLoss。
 
+## 训练曲线分析
+
+训练曲线用于观察每个 epoch 的平均训练 loss、pixel accuracy、mIoU 和各类 IoU。重点检查 loss 是否下降、mIoU 和 weed IoU 是否持续提升或趋于稳定，并在相同训练设置下比较 baseline 与 weighted 的变化。整体准确率较高时，仍需单独关注 weed IoU。
+
+训练记录分别保存为 `outputs/synthetic_history_baseline.csv` 和 `outputs/synthetic_history_weighted.csv`。运行以下命令绘制对应曲线：
+
+```bash
+python plot_synthetic_history.py
+python plot_synthetic_history.py --use-class-weights
+```
+
+以下结果留空，待运行训练和绘图后填写。
+
+| 观察项目 | Baseline | Weighted |
+| --- | --- | --- |
+| loss 的变化 | | |
+| pixel accuracy 的变化 | | |
+| mIoU 的变化 | | |
+| background IoU 的变化 | | |
+| crop IoU 的变化 | | |
+| weed IoU 的变化 | | |
+| 曲线分析结论 | | |
+
 ## Baseline：普通 CrossEntropyLoss
 
 训练命令：
