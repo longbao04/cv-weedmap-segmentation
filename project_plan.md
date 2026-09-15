@@ -1,6 +1,8 @@
 # 项目计划
 
-当前仅搭建骨架、理解数据，不下载数据、不训练模型。以下阶段是后续学习路线。
+**当前阶段：已进入 synthetic U-Net baseline。** 在真实 WeedMap 数据之前，先用 NumPy 模拟数据跑通 image / mask / 模型 / 指标 / 可视化流程。已实现小型 U-Net、训练入口、pixel accuracy、各类 IoU、mIoU 和预测可视化；运行 `python train_synthetic_unet.py --epochs 5` 可训练模拟数据模型。本阶段不下载真实数据，不训练真实 WeedMap。
+
+以下是真实数据阶段的后续学习路线；synthetic baseline 是进入这些阶段前的练习，不能替代真实数据验证。
 
 1. **阶段 1：理解 WeedMap 数据结构。** 检查 Tiles 目录、文件后缀、通道命名、image 与 annotation 的对应关系，核实标签值和类别映射。使用 `inspect_dataset_structure.py` 做初步统计。
 2. **阶段 2：读取 RGB / NIR / RedEdge / NDVI 等通道。** 核实传感器、波段顺序、尺寸、数据类型和数值范围；检查通道是否配准。若计算 NDVI，使用 `(NIR - R) / (NIR + R)`，处理零分母，并先确认波段数值是否适合计算。
