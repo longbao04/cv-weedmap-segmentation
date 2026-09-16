@@ -97,8 +97,10 @@ Multispectral 的 mean IoU 和 weed IoU 更高，初步表明多光谱通道对�
 
 **对比局限：**RGB Dataset 有 454 个有效样本，multispectral Dataset 有 884 个有效样本，样本集合不完全一致，因此当前结果仍是初步对比，不能单独归因于输入通道。后续需要让 RGB 和 multispectral 使用同一批样本，再比较指标。
 
+运行 `python build_common_sample_list.py` 可生成 `splits/real_weedmap_common_samples.csv`。列表只包含 RGB 与五通道 multispectral 输入、彩色标签及 mask 都齐全，且过滤空输入和无前景标签后的样本。构建这份共享样本列表，是为了让 RGB 和 multispectral 在完全相同的样本上使用相同训练/验证划分，公平比较输入通道带来的差异；现有对比结果尚未使用此列表。
+
 ## 下一步计划
 
-- 构造 RGB 和 multispectral 共享样本列表，在相同样本与数据划分上做严格公平对比；
+- 基于 RGB 和 multispectral 共享样本列表，在相同样本与数据划分上做严格公平对比；
 - 尝试 weed class weight = 12 或 16；
 - 继续做 20 epochs 和多 seed 实验。

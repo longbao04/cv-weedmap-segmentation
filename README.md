@@ -46,6 +46,7 @@ cv-weedmap-segmentation/
 ├── synthetic_segmentation_report.md
 ├── inspect_dataset_structure.py
 ├── analyze_real_weedmap_labels.py
+├── build_common_sample_list.py
 ├── visualize_sample_placeholder.py
 ├── visualize_real_weedmap_sample.py
 ├── visualize_real_weedmap_prediction.py
@@ -103,6 +104,14 @@ python weedmap_dataset.py
 ```
 
 脚本会分别测试 RGB 与 multispectral Dataset，并打印样本数以及首个样本的 image/label shape、dtype、数值范围、标签 unique values 和各类像素数。Dataset 默认使用 `filter_empty=True` 过滤全黑输入、全 ignore 标签、有效像素过少或没有 crop/weed 前景的空样本。缺少必要输入或标签的样本仍会自动跳过；初始化输出会分别说明 `skipped missing samples` 和 `skipped empty/invalid samples`，因部分子集缺少 RGB 而被跳过的样本也计入前者。
+
+为 RGB 与 multispectral 公平对比构建共享样本列表：
+
+```bash
+python build_common_sample_list.py
+```
+
+脚本扫描 8 个真实数据子集，只保留 RGB、G/R/RE/NIR/NDVI、彩色标签和 mask 均存在，且两种输入非全黑、标签含有效 crop/weed 前景的样本。结果保存到自动创建的 `splits/real_weedmap_common_samples.csv`，字段为 `sensor,subset_id,sample_id`；终端打印总数、各子集数量及 crop/weed 像素统计。可用 `--data-root` 和 `--output` 指定路径。
 
 ## 训练真实 WeedMap U-Net
 
