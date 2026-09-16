@@ -18,7 +18,6 @@ from weedmap_dataset import WeedMapDataset
 NUM_CLASSES = 3
 IGNORE_INDEX = 255
 CLASS_NAMES = ("background", "crop", "weed")
-CLASS_WEIGHTS = (1.0, 4.0, 8.0)
 LOSS_CHOICES = ("ce", "weighted_ce")
 INPUT_CHOICES = ("rgb", "multispectral")
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -35,6 +34,9 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--loss", choices=LOSS_CHOICES, default="weighted_ce")
+    parser.add_argument("--background-weight", type=float, default=1.0)
+    parser.add_argument("--crop-weight", type=float, default=4.0)
+    parser.add_argument("--weed-weight", type=float, default=8.0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument(
@@ -43,6 +45,15 @@ def parse_args():
         default=None,
         help=(
             "模型保存路径；默认 models/real_weedmap_<input_type>_<loss>.pth"
+        ),
+    )
+    parser.add_argument(
+        "--history-path",
+        type=Path,
+        default=None,
+        help=(
+            "训练 history CSV 保存路径；默认 "
+            "outputs/real_weedmap_history_<input_type>_<loss>.csv"
         ),
     )
     args = parser.parse_args()
@@ -174,7 +185,11 @@ def main():
     in_channels = 3 if args.input_type == "rgb" else 5
     model = SmallUNet(in_channels=in_channels, num_classes=NUM_CLASSES).to(device)
     if args.loss == "weighted_ce":
-        class_weights = torch.tensor(CLASS_WEIGHTS, dtype=torch.float32, device=device)
+        class_weights = torch.tensor(
+            [args.background_weight, args.crop_weight, args.weed_weight],
+            dtype=torch.float32,
+            device=device,
+        )
         criterion = nn.CrossEntropyLoss(
             weight=class_weights, ignore_index=IGNORE_INDEX
         )
@@ -194,9 +209,10 @@ def main():
     best_model_path = model_path.with_name(
         f"{model_path.stem}_best{model_path.suffix}"
     )
-    history_path = (
+    history_path = args.history_path or (
         output_dir / f"real_weedmap_history_{args.input_type}_{args.loss}.csv"
     )
+    history_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = (
         "epoch",
         "train_loss",
@@ -217,7 +233,10 @@ def main():
     print(f"loss type: {args.loss}")
     print(f"ignore_index={IGNORE_INDEX}")
     if class_weights is not None:
-        print("class weights: background=1.0, crop=4.0, weed=8.0")
+        print(
+            f"class weights: background={args.background_weight}, "
+            f"crop={args.crop_weight}, weed={args.weed_weight}"
+        )
 
     best_val_mean_iou = -math.inf
     best_epoch = None

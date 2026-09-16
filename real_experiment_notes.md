@@ -157,5 +157,6 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 
 ## 下一步计划
 
+- 后续将通过调整 weed class weight，例如 8、12、16，观察 weed IoU 是否进一步提升。
 - 继续比较 weed class weight = 12 和 16；
 - 做 20 epochs 和多 seed 重复实验。
