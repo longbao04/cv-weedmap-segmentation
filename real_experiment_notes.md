@@ -223,10 +223,51 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 | 10 epochs best | 94.19% | 60.77% | 94.96% | 53.49% | 33.85% |
 | 20 epochs best | 94.82% | 63.90% | 95.32% | 59.39% | 36.99% |
 
-单张预测可视化上，20 epochs best 同样优于 10 epochs best。错误仍主要集中在 crop/weed 边界、小目标 weed 以及植物混杂区域。后续可以继续尝试更长训练，例如 30 epochs，但必须使用 best checkpoint。更重要的下一步是进行多 seed 重复实验，验证 20 epochs 的提升是否稳定。
+单张预测可视化上，20 epochs best 同样优于 10 epochs best。错误仍主要集中在 crop/weed 边界、小目标 weed 以及植物混杂区域。后续可以继续尝试更长训练，例如 30 epochs，但必须使用 best checkpoint。20 epochs 的多 seed 重复结果见下节。
+
+## 20 epochs 多 seed 重复实验
+
+### 实验设置
+
+- `sample_list_csv=splits/real_weedmap_common_samples.csv`
+- `input_type=multispectral`
+- `loss=weighted_ce`
+- class weights：`background=1.0`、`crop=4.0`、`weed=8.0`
+- `epochs=20`
+- `batch_size=2`
+- train samples：`363`
+- val samples：`91`
+- `ignore_index=255`
+- seeds：`0`、`1`、`2`
+- 使用 best checkpoint，根据 val mean IoU 保存最佳模型
+
+### 各 seed 的 best checkpoint 验证集结果
+
+| Seed | Best Epoch | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 15 | 95.97% | 73.88% | 96.20% | 70.89% | 54.54% |
+| 1 | 15 | 96.51% | 74.99% | 96.96% | 69.59% | 58.44% |
+| 2 | 15 | 96.65% | 75.47% | 96.94% | 71.80% | 57.68% |
+
+### 多 seed 均值与样本标准差
+
+| Metric | Mean ± Std |
+|---|---:|
+| Pixel Accuracy | 96.38% ± 0.36% |
+| Mean IoU | 74.78% ± 0.82% |
+| Background IoU | 96.70% ± 0.43% |
+| Crop IoU | 70.76% ± 1.11% |
+| Weed IoU | 56.89% ± 2.06% |
+
+三个 seed 的 best epoch 均为 Epoch 15，说明当前设置在 20 epochs 内的最佳轮次比较稳定。三个 seed 的 mean IoU 位于 73.88%～75.47%，波动较小；weed IoU 均超过 54%，明显高于 10 epochs best 的 50.43%。多 seed 平均 weed IoU 为 56.89% ± 2.06%，支持 20 epochs 的提升不是偶然的单次结果。当前可将 `multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint` 作为后续 baseline。
+
+## 阶段性结论
+
+目前真实 WeedMap 实验最推荐报告多 seed 平均结果，而不是某一次单独训练结果；20 epochs baseline 的验证集 mean IoU 为 74.78% ± 0.82%，weed IoU 为 56.89% ± 2.06%（三个 seed 的样本标准差）。
 
 ## 下一步计划
 
-- 运行 20 epochs 多 seed 重复实验，验证当前提升是否稳定；
-- 尝试 Focal Loss 或 Dice + CE；
-- 后续如果需要给导师提交，可以再重新生成 docx。
+- 尝试 Focal Loss；
+- 尝试 Dice + CE；
+- 可尝试 30 epochs，但必须继续根据 val mean IoU 使用 best checkpoint；
+- 后续需要给导师时再重新生成 docx。
