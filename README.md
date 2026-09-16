@@ -96,6 +96,7 @@ python weedmap_dataset.py
 
 ```bash
 python train_real_weedmap_unet.py --input-type multispectral --loss weighted_ce --epochs 3
+python train_real_weedmap_unet.py --input-type multispectral --loss weighted_ce --epochs 10 --batch-size 2 --save-path models/real_weedmap_multispectral_weighted_ce_10epochs.pth
 ```
 
 默认读取 `data/weedmap`，按固定随机种子划分 80% 训练集和 20% 验证集。多光谱输入使用 G、R、RedEdge、NIR、NDVI 五个通道；RGB 输入使用三个通道。标签 255 作为 `ignore_index`，不参与 loss 或验证指标，也不会被当作第 4 类。默认 weighted CE 权重为 background=1.0、crop=4.0、weed=8.0。

@@ -30,6 +30,60 @@
 
 整体像素准确率较高，但 weed IoU 明显低于 background 和 crop。下一步将通过真实预测可视化检查 weed 的漏检、误检、边界混淆及小目标表现，分析 weed IoU 较低的原因。
 
+## 真实 WeedMap 10 epochs 稳定性实验
+
+### 实验设置
+
+- `input_type=multispectral`
+- `loss=weighted_ce`
+- `epochs=10`
+- `batch_size=2`
+- class weights：`background=1.0`、`crop=4.0`、`weed=8.0`
+- `ignore_index=255`
+- train samples：`707`
+- val samples：`177`
+
+### 训练结果
+
+| Epoch | Train loss | Val pixel accuracy | Val mean IoU | Background IoU | Crop IoU | Weed IoU |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1/10 | 0.4497 | 95.38% | 52.28% | 96.99% | 47.65% | 12.18% |
+| 2/10 | 0.2724 | 95.25% | 52.53% | 96.84% | 49.52% | 11.24% |
+| 3/10 | 0.2532 | 95.61% | 56.37% | 97.15% | 56.28% | 15.68% |
+| 4/10 | 0.2455 | 95.12% | 56.41% | 96.76% | 50.87% | 21.59% |
+| 5/10 | 0.2364 | 95.52% | 54.94% | 96.83% | 55.68% | 12.31% |
+| 6/10 | 0.2365 | 95.50% | 54.14% | 96.81% | 53.91% | 11.70% |
+| 7/10 | 0.2257 | 95.07% | 57.62% | 96.18% | 57.81% | 18.86% |
+| 8/10 | 0.2099 | 96.40% | 62.65% | 97.17% | 62.13% | 28.66% |
+| 9/10 | 0.2019 | 96.29% | 63.80% | 97.14% | 60.38% | 33.90% |
+| 10/10 | 0.1781 | 97.22% | 69.21% | 97.69% | 64.17% | 45.76% |
+
+### 3 epochs 与 10 epochs 对比
+
+| 训练轮数 | Val mean IoU | Weed IoU |
+| ---: | ---: | ---: |
+| 3 epochs | 56.37% | 15.68% |
+| 10 epochs | 69.21% | 45.76% |
+
+weed IoU 从 `15.68%` 提升到 `45.76%`，说明增加训练轮数对真实 WeedMap 的 weed 类非常有效。
+
+### 10 epochs 预测可视化结果
+
+- sample index：`0`
+- pixel accuracy：`95.49%`
+- background IoU：`96.24%`
+- crop IoU：`56.40%`
+- weed IoU：`37.34%`
+- mean IoU：`63.33%`
+
+### 实验现象总结
+
+- background IoU 一直较高，因为背景像素占比大且更容易识别。
+- crop IoU 稳定提升。
+- weed IoU 前期波动较大，但 Epoch 8 到 Epoch 10 明显上升。
+- 真实 WeedMap 中 weed 是最难类别，训练轮数不足时容易漏检。
+- 不能只看 pixel accuracy，必须重点看 weed IoU 和 mean IoU。
+
 ## 后续比较
 
 后续将在相同数据划分、随机种子、训练轮数和学习率下比较 RGB 与 multispectral 输入，重点观察 mean IoU、crop IoU 和 weed IoU，检验额外光谱通道是否在真实数据上带来稳定收益。
