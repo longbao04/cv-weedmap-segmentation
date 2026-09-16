@@ -90,11 +90,20 @@ def print_imap_counts(imap):
         print(f"  {integer_value} ({label}): {int(count)}")
 
 
+def print_mask_values(mask):
+    values = np.unique(mask)
+    print(f"Mask unique values: {values.tolist()}")
+    print("  mask=0: valid area")
+    print("  mask=255: invalid/no-data area")
+
+
 def make_figure(images, sample_id):
     rgb = as_display_rgb(images["RGB"])
     imap = images["GroundTruth iMap"]
+    mask = images["valid mask"]
+    valid_mask = mask == 0
 
-    weed = imap == 2
+    weed = (imap == 2) & valid_mask
     overlay = rgb.copy()
     weed_color = np.array([1.0, 0.1, 0.1], dtype=np.float32)
     overlay[weed] = 0.55 * rgb[weed] + 0.45 * weed_color
@@ -117,7 +126,7 @@ def make_figure(images, sample_id):
         (images["RedEdge"], "RedEdge", {"cmap": "gray"}),
         (images["GroundTruth color"], "GroundTruth color", {}),
         (imap_display, "GroundTruth iMap", {"cmap": label_cmap, "norm": label_norm}),
-        (images["valid mask"], "valid mask", {"cmap": "gray", "vmin": 0}),
+        (valid_mask, "valid area mask", {"cmap": "gray", "vmin": 0, "vmax": 1}),
         (overlay, "overlay (weed in red)", {}),
     )
     for axis, (image, title, options) in zip(axes.flat, panels):
@@ -161,6 +170,7 @@ def main():
         images = load_images(build_paths(data_root, args.sample_id))
         validate_shapes(images)
         print_imap_counts(images["GroundTruth iMap"])
+        print_mask_values(images["valid mask"])
         figure = make_figure(images, args.sample_id)
         output.parent.mkdir(parents=True, exist_ok=True)
         figure.savefig(output, dpi=150, bbox_inches="tight")
