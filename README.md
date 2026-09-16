@@ -58,6 +58,7 @@ cv-weedmap-segmentation/
 ├── train_synthetic_unet.py
 ├── train_real_weedmap_unet.py
 ├── plot_synthetic_history.py
+├── plot_real_loss_comparison.py
 ├── visualize_synthetic_prediction.py
 ├── requirements.txt
 └── .gitignore
@@ -145,6 +146,16 @@ python visualize_real_weedmap_prediction.py
 ```
 
 脚本默认加载 `models/real_weedmap_multispectral_weighted_ce.pth`，读取过滤后的第 0 个 multispectral 样本，并将图片保存到 `outputs/real_weedmap_prediction_multispectral_weighted_ce.png`。终端会打印忽略标签 255 后的 pixel accuracy、background/crop/weed IoU 和 mean IoU。可通过 `--data-root`、`--input-type`、`--loss`、`--model-path`、`--sample-index`、`--sample-list-csv` 和 `--output` 调整运行参数；使用 RGB 输入时需要指定与三通道模型对应的权重文件。
+
+## 真实 WeedMap loss 对比曲线
+
+使用已有的三份 multispectral、seed=0、20 epochs history CSV 绘制验证集 mean IoU 和 weed IoU 曲线：
+
+```bash
+python plot_real_loss_comparison.py
+```
+
+图片分别保存到 `outputs/real_weedmap_loss_comparison_seed0.png` 和 `reports/assets/real_weedmap_loss_comparison_seed0.png`；缺少任何输入 CSV 时会报出对应路径。
 
 ## 训练过程记录与曲线
 
