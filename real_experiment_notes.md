@@ -119,6 +119,42 @@ RGB 和 Multispectral 使用同一个 sample list、相同样本数和相同训�
 
 Multispectral 在 Epoch 8 达到更好结果：mean IoU 为 70.38%，weed IoU 为 50.43%；Epoch 10 的 mean IoU 为 67.76%，weed IoU 为 46.73%。真实 WeedMap 训练后期存在波动，后续实验应优先报告验证集 mean IoU 最优的 best checkpoint 指标，而不仅仅是最后一轮指标。训练脚本现已同时保存 best checkpoint 和最后一轮模型。
 
+## Best checkpoint 验证结果
+
+在严格公平 multispectral 实验中，训练脚本已经支持根据 val mean IoU 保存 best checkpoint。
+
+### 整体验证集结果
+
+- best epoch = 8
+- best val mean IoU = 70.38%
+- best background IoU = 96.09%
+- best crop IoU = 64.61%
+- best weed IoU = 50.43%
+- best model path = `models/real_weedmap_common_multispectral_weighted_ce_10epochs_best.pth`
+
+与最后一轮 Epoch 10 对比：
+
+- Epoch 10 val mean IoU = 67.76%
+- Epoch 10 weed IoU = 46.73%
+- best Epoch 8 val mean IoU = 70.38%
+- best Epoch 8 weed IoU = 50.43%
+
+这组结果说明：
+
+1. 真实 WeedMap 训练后期存在波动。
+2. 最后一轮模型不一定是最优模型。
+3. 保存 best checkpoint 可以避免因为后期波动导致最终模型性能下降。
+4. 后续实验应优先报告 best checkpoint 的结果。
+
+### 单张 sample index=0 预测可视化结果
+
+| Model | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|
+| Epoch 10 final | 92.63% | 57.12% | 93.41% | 48.42% | 29.53% |
+| Best checkpoint | 94.19% | 60.77% | 94.96% | 53.49% | 33.85% |
+
+best checkpoint 在验证集整体指标和单张预测可视化指标上都优于最后一轮模型，因此后续真实 WeedMap 实验应保存并使用 best checkpoint。
+
 ## 下一步计划
 
 - 继续比较 weed class weight = 12 和 16；
