@@ -8,12 +8,18 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
+from losses import DiceLoss, FocalLoss
 from metrics import CLASS_NAMES, confusion_matrix, mean_iou, per_class_iou, pixel_accuracy
 from synthetic_dataset import SyntheticWeedDataset
 from unet import SmallUNet
 
-MODEL_PATH = Path(__file__).resolve().parent / "models" / "synthetic_unet.pth"
-WEIGHTED_MODEL_PATH = MODEL_PATH.with_name("synthetic_unet_weighted.pth")
+MODEL_PATH = Path(__file__).resolve().parent / "models" / "synthetic_unet_ce.pth"
+LOSS_CHOICES = ("ce", "weighted_ce", "dice", "focal")
+
+
+def get_model_path(loss):
+    # 每种损失单独保存模型，便于比较实验。
+    return MODEL_PATH.with_name(f"synthetic_unet_{loss}.pth")
 
 
 def select_device():
@@ -26,6 +32,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--lr", type=float, default=0.001)
+    parser.add_argument("--loss", choices=LOSS_CHOICES, default="ce",
+                        help="损失函数，默认 ce")
     parser.add_argument("--use-class-weights", action="store_true",
                         help="使用类别权重：background=1.0、crop=2.0、weed=6.0")
     args = parser.parse_args()
@@ -40,24 +48,31 @@ def main():
     test_loader = DataLoader(SyntheticWeedDataset(64, seed=2026),
                              batch_size=args.batch_size)
     model = SmallUNet().to(device)
-    # 默认使用普通交叉熵；weed 像素少，所以给更高权重，提高分错 weed 的惩罚。
-    # 权重顺序对应类别编号 0/1/2，且必须与模型位于同一个设备。
-    class_weights = (torch.tensor([1.0, 2.0, 6.0], device=device)
-                     if args.use_class_weights else None)
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
-    model_path = WEIGHTED_MODEL_PATH if args.use_class_weights else MODEL_PATH
+    # 旧开关优先，等价于 --loss weighted_ce，保持已有命令兼容。
+    loss_name = "weighted_ce" if args.use_class_weights else args.loss
+    if loss_name == "weighted_ce":
+        # 顺序为 background/crop/weed；权重和模型必须位于同一设备。
+        class_weights = torch.tensor([1.0, 2.0, 6.0], device=device)
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
+    elif loss_name == "dice":
+        criterion = DiceLoss(num_classes=3, ignore_index=None)
+    elif loss_name == "focal":
+        criterion = FocalLoss(num_classes=3, ignore_index=None)
+    else:
+        criterion = nn.CrossEntropyLoss()
+    model_path = get_model_path(loss_name)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    # 普通和加权训练分别保存；重新训练同一种模式时覆盖旧记录。
+    # 四种损失分别保存；重新训练同一种损失时覆盖旧记录。
     output_dir = MODEL_PATH.parent.parent / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
-    mode = "weighted" if args.use_class_weights else "baseline"
-    history_path = output_dir / f"synthetic_history_{mode}.csv"
+    history_path = output_dir / f"synthetic_history_{loss_name}.csv"
     fieldnames = ["epoch", "average_train_loss", "pixel_accuracy", "mean_iou",
                   "background_iou", "crop_iou", "weed_iou"]
     with history_path.open("w", newline="", encoding="utf-8") as history_file:
         csv.DictWriter(history_file, fieldnames=fieldnames).writeheader()
     print(f"Device: {device}; train samples: 256; test samples: 64")
-    print(f"是否使用 class weights：{'是（background=1.0、crop=2.0、weed=6.0）' if args.use_class_weights else '否'}")
+    print(f"当前 loss 类型：{loss_name}")
+    print(f"是否使用 class weights：{'是（background=1.0、crop=2.0、weed=6.0）' if loss_name == 'weighted_ce' else '否'}")
 
     for epoch in range(args.epochs):
         model.train()

@@ -1,10 +1,12 @@
 # 项目计划
 
-当前已新增 synthetic U-Net 训练过程记录与指标曲线可视化：每个 epoch 保存平均训练 loss、pixel accuracy、mIoU 和 background/crop/weed IoU，普通与加权训练分别输出 CSV。使用 `plot_synthetic_history.py`（加权模式传入 `--use-class-weights`）查看六个指标的曲线，重点观察 weed IoU 的变化。曲线分析结果待运行后填写到 `synthetic_experiment_notes.md`；保持 U-Net 主体结构和模型保存逻辑不变。
+**当前阶段：synthetic U-Net 的 Loss Function 对比。** Weighted CrossEntropyLoss 已显著改善 weed 识别，已有 10 epochs 结果为 weed IoU=89.19%、mean IoU=94.99%。接下来比较 CrossEntropyLoss、Weighted CrossEntropyLoss、Dice Loss 和 Focal Loss，重点检查少数类 weed IoU，并结合 mean IoU 和 background/crop IoU 评估整体效果。
 
-**当前阶段：synthetic U-Net baseline 的类别不平衡处理。** 已用 NumPy 模拟数据跑通 image / mask / 模型 / 指标 / 可视化流程。Baseline 训练 5 个 epochs 后 pixel accuracy 为 93.16%，但 weed IoU 仅为 0.26%，需要关注少数类 weed 的分割效果。本阶段不下载真实数据，不训练真实 WeedMap，不修改 U-Net 主体结构。
+使用 `--loss ce`、`--loss weighted_ce`、`--loss dice`、`--loss focal` 选择实验。Weighted CrossEntropyLoss 的权重为 background=1.0、crop=2.0、weed=6.0，旧参数 `--use-class-weights` 继续等价于 `--loss weighted_ce`。比较时保持模拟数据种子、epochs（先统一为 10）、batch-size 和 lr 一致。
 
-接下来比较普通 CrossEntropyLoss 与 weighted CrossEntropyLoss：保持模拟数据种子、epochs、batch-size 和 lr 一致，通过 `--use-class-weights` 启用 background=1.0、crop=2.0、weed=6.0 的权重。分别保存普通与加权模型，比较 pixel accuracy、mIoU、各类 IoU 和预测可视化，重点观察 weed IoU 是否改善。Baseline 已记录在 `synthetic_experiment_notes.md`，加权实验结果待运行后填写。
+每个 epoch 保存平均训练 loss、pixel accuracy、mean IoU 和 background/crop/weed IoU。各损失的模型和 history CSV 按 loss 名称分别保存，通过 `plot_synthetic_history.py --loss <loss>` 和 `visualize_synthetic_prediction.py --loss <loss>` 查看对应实验。结果填写到 `synthetic_experiment_notes.md`；ce、dice、focal 的 10 epochs 结果等待运行后补充。
+
+本阶段不联网，不下载真实 WeedMap 数据，不训练真实数据，不修改 U-Net 主体结构。模拟数据用于学习和比较流程，不能替代真实数据验证。
 
 以下是真实数据阶段的后续学习路线；synthetic baseline 是进入这些阶段前的练习，不能替代真实数据验证。
 

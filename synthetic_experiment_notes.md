@@ -1,12 +1,12 @@
 # Synthetic segmentation 实验记录
 
-本阶段仅使用模拟数据，未下载或训练真实 WeedMap 数据。保持 U-Net 主体结构不变，比较普通 CrossEntropyLoss 和 weighted CrossEntropyLoss。
+本阶段仅使用模拟数据，未下载或训练真实 WeedMap 数据。保持 U-Net 主体结构不变，当前进入 CrossEntropyLoss、Weighted CrossEntropyLoss、Dice Loss 和 Focal Loss 对比阶段。
 
 ## 训练曲线分析
 
 训练曲线用于观察每个 epoch 的平均训练 loss、pixel accuracy、mIoU 和各类 IoU。重点检查 loss 是否下降、mIoU 和 weed IoU 是否持续提升或趋于稳定，并在相同训练设置下比较 baseline 与 weighted 的变化。整体准确率较高时，仍需单独关注 weed IoU。
 
-训练记录分别保存为 `outputs/synthetic_history_baseline.csv` 和 `outputs/synthetic_history_weighted.csv`。运行以下命令绘制对应曲线：
+此前训练记录使用 `outputs/synthetic_history_baseline.csv` 和 `outputs/synthetic_history_weighted.csv`。新增 loss 选择后，普通与加权实验分别使用 `outputs/synthetic_history_ce.csv` 和 `outputs/synthetic_history_weighted_ce.csv`；旧记录不会自动迁移。运行以下命令绘制对应曲线：
 
 ```bash
 python plot_synthetic_history.py
@@ -55,7 +55,7 @@ python train_synthetic_unet.py --epochs 5 --use-class-weights
 python visualize_synthetic_prediction.py --use-class-weights
 ```
 
-模型保存为 `models/synthetic_unet_weighted.pth`。以下记录已提供的实验结果；比较时应保持 epochs、batch-size、lr 和模拟数据种子一致。
+此前模型保存为 `models/synthetic_unet_weighted.pth`；新脚本使用 `models/synthetic_unet_weighted_ce.pth`。以下记录已提供的实验结果；比较时应保持 epochs、batch-size、lr 和模拟数据种子一致。
 
 | 项目 | 结果 |
 | --- | --- |
@@ -81,3 +81,68 @@ python visualize_synthetic_prediction.py --use-class-weights
 8. Weighted 的 weed IoU 在训练过程中波动较大，说明少数类 weed 的学习更不稳定。weed 面积小、属于小目标，且与 crop 都属于植被，因此其 IoU 比 background IoU、crop IoU 更不稳定。
 9. 在 crop/weed/background 分割任务中，应该重点关注 per-class IoU，尤其是 weed IoU，并结合 mean IoU 判断整体分割质量，而不是只看 pixel accuracy。
 10. 这个现象和真实农业遥感任务很接近，因为真实田间杂草通常面积小、分布零散、和作物光谱相近。本次结果来自模拟数据，尚未验证真实田间数据上的效果。
+
+## 10 epochs + class weights 稳定性实验
+
+在模拟数据上，将 weighted CrossEntropyLoss 的训练轮数扩展到 10 epochs，观察少数类 weed 的学习稳定性。5 epochs weighted 与 10 epochs weighted 的结果对比如下：
+
+| 指标 | 5 epochs weighted | 10 epochs weighted |
+| --- | --- | --- |
+| average train loss | 0.1719 | 0.0501 |
+| pixel accuracy | 97.05% | 98.85% |
+| mean IoU | 88.57% | 94.99% |
+| background IoU | 96.55% | 98.79% |
+| crop IoU | 93.60% | 96.98% |
+| weed IoU | 75.54% | 89.19% |
+
+训练过程中各 epoch 的 weed IoU：
+
+| Epoch | weed IoU |
+| --- | --- |
+| 1 | 0.00% |
+| 2 | 41.21% |
+| 3 | 0.20% |
+| 4 | 73.92% |
+| 5 | 75.54% |
+| 6 | 82.64% |
+| 7 | 84.88% |
+| 8 | 84.37% |
+| 9 | 86.99% |
+| 10 | 89.19% |
+
+### 观察与结论
+
+1. weed IoU 从 5 epochs weighted 的 75.54% 提升到 10 epochs weighted 的 89.19%，提高了 13.65 个百分点。
+2. mean IoU 从 88.57% 提升到 94.99%，提高了 6.42 个百分点，整体分割质量进一步改善。
+3. pixel accuracy 从 97.05% 提升到 98.85%，提高了 1.80 个百分点。
+4. 前 5 个 epoch 的 weed IoU 波动较大，尤其 Epoch 3 从 Epoch 2 的 41.21% 降到 0.20%，说明训练初期对少数类 weed 的学习尚不稳定。
+5. Epoch 6 到 Epoch 10 的 weed IoU 均保持在 82% 以上；虽然 Epoch 8 有小幅回落，但后期整体更稳定，并在 Epoch 10 达到 89.19%。
+6. 结合此前 baseline 与 weighted 的对比，class weights 对少数类 weed 有明显帮助，但需要更多训练轮数让模型稳定学习。本次 10 epochs 的后期表现支持这一判断，尚不能据此认定更长训练或其他数据上也一定稳定。
+7. 在真实 crop/weed/background 农业遥感分割任务中，少数类 weed 需要重点关注。不能只看 pixel accuracy，应结合 mean IoU 和各类 IoU，尤其是 weed IoU，评估模型是否学会识别杂草。本次结果来自模拟数据，真实数据上的效果仍需验证。
+
+## Loss Function 对比实验
+
+实验目的：比较不同 loss function 对 weed IoU 和 mean IoU 的影响，继续改进 synthetic crop/weed/background 分割中的少数类 weed 识别。
+
+比较 CrossEntropyLoss（ce）、Weighted CrossEntropyLoss（weighted_ce）、Dice Loss（dice）和 Focal Loss（focal）。Dice Loss 更关注预测区域和真实区域的重叠；Focal Loss 更关注难分类样本，两者常用于类别不平衡或小目标分割。weighted_ce 的类别权重保持为 background=1.0、crop=2.0、weed=6.0；focal 默认 gamma=2，不额外使用类别权重。
+
+保持模拟数据种子、batch-size、lr 和 epochs 一致，先统一运行 10 epochs。除损失函数外，保持 U-Net 主体结构和评估方式不变。不同 loss 的数值尺度不同，主要用 weed IoU、mean IoU 和各类 IoU 比较效果。
+
+| loss | epochs | average train loss | pixel accuracy | mean IoU | background IoU | crop IoU | weed IoU | 观察 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ce | 10 | 0.0527 | 98.04% | 89.71% | 98.66% | 94.34% | 76.14% | weed IoU 比 5 epochs baseline 的 0.26% 明显提升 | 增加训练轮数本身也有帮助，但 weed IoU 仍低于 focal 和 weighted_ce |
+| weighted_ce | 10 | 0.0501 | 98.85% | 94.99% | 98.79% | 96.98% | 89.19% | pixel accuracy、mean IoU 和各类 IoU 均为本组最高；后 5 个 epoch 的 weed IoU 均超过 82% | 整体效果最好，是本组实验中最有效的少数类 weed 改进方法 |
+| dice | 10 | 0.0954 | 97.23% | 85.51% | 98.64% | 91.62% | 66.27% | weed IoU 和 mean IoU 均低于 ce、focal 和 weighted_ce | 本实验中 Dice Loss 的 weed 分割效果较弱 |
+| focal | 10 | 0.0122 | 98.00% | 91.16% | 98.18% | 94.00% | 81.30% | weed IoU 比 ce 高 5.16 个百分点，mean IoU 也更高 | 对难分类样本和少数类有帮助，但整体效果仍低于 weighted_ce |
+
+本表记录已提供的 10 epochs 结果，未重新训练。weighted_ce 的 average train loss（0.0501）引用前文已有的 10 epochs class weights 稳定性实验记录。前文的 5 epochs baseline 保留为历史记录，仅用于观察增加训练轮数的影响，不作为本表同轮数 loss 对比的结果。
+
+### 观察与结论
+
+1. weighted_ce 的整体效果最好，mean IoU 为 94.99%，weed IoU 为 89.19%，两项指标均为本组实验最高。
+2. focal loss 的 weed IoU 为 81.30%，明显高于普通 ce 的 76.14%，提高了 5.16 个百分点，说明 focal loss 对难分类样本和少数类有帮助。
+3. dice loss 的 weed IoU 为 66.27%，在本实验中低于 ce、focal 和 weighted_ce。
+4. 普通 ce 在训练 10 epochs 后 weed IoU 达到 76.14%，比 5 epochs baseline 的 0.26% 明显更好，说明增加训练轮数本身也有帮助。
+5. 不同 loss 的 loss 数值不能直接比较大小，因为计算公式不同；应主要比较 pixel accuracy、mean IoU 和 per-class IoU，不能根据 average train loss 的大小判断哪种 loss 的分割效果更好。
+6. 在当前 synthetic crop/weed/background 分割实验中，weighted_ce 是本次比较的四种 loss 中最有效的少数类 weed 改进方法。
+7. 真实农业遥感任务中，也应该重点关注 weed IoU 和 mean IoU，而不是只看 pixel accuracy，以判断模型是否有效识别少数类杂草。

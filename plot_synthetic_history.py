@@ -10,17 +10,18 @@ from matplotlib.ticker import MaxNLocator
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--loss", choices=("ce", "weighted_ce", "dice", "focal"),
+                        default="ce", help="读取对应损失的训练记录，默认 ce")
     parser.add_argument("--use-class-weights", action="store_true",
                         help="读取使用类别权重训练的 history")
     args = parser.parse_args()
-    mode = "weighted" if args.use_class_weights else "baseline"
+    # 旧开关优先，等价于 --loss weighted_ce。
+    mode = "weighted_ce" if args.use_class_weights else args.loss
     # 相对于脚本定位文件，从其他目录运行时也能找到项目 outputs。
     output_dir = Path(__file__).resolve().parent / "outputs"
     history_path = output_dir / f"synthetic_history_{mode}.csv"
     if not history_path.is_file():
-        train_command = "python train_synthetic_unet.py --epochs 5"
-        if args.use_class_weights:
-            train_command += " --use-class-weights"
+        train_command = f"python train_synthetic_unet.py --epochs 10 --loss {mode}"
         print(f"CSV 文件不存在：{history_path}\n请先运行：{train_command}")
         return
 

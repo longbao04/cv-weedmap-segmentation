@@ -9,21 +9,22 @@ import torch
 
 from metrics import CLASS_NAMES
 from synthetic_dataset import SyntheticWeedDataset
-from train_synthetic_unet import MODEL_PATH, WEIGHTED_MODEL_PATH, select_device
+from train_synthetic_unet import MODEL_PATH, LOSS_CHOICES, get_model_path, select_device
 from unet import SmallUNet
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--loss", choices=LOSS_CHOICES, default="ce",
+                        help="加载对应损失训练的模型，默认 ce")
     parser.add_argument("--use-class-weights", action="store_true",
                         help="加载使用类别权重训练的模型")
     args = parser.parse_args()
-    # 训练和可视化使用相同的开关，避免把普通模型当成加权模型来比较。
-    model_path = WEIGHTED_MODEL_PATH if args.use_class_weights else MODEL_PATH
+    # 旧开关优先，等价于 --loss weighted_ce。
+    loss_name = "weighted_ce" if args.use_class_weights else args.loss
+    model_path = get_model_path(loss_name)
     if not model_path.is_file():
-        train_command = "python train_synthetic_unet.py --epochs 5"
-        if args.use_class_weights:
-            train_command += " --use-class-weights"
+        train_command = f"python train_synthetic_unet.py --epochs 10 --loss {loss_name}"
         print(f"模型文件不存在：{model_path}\n请先运行：{train_command}")
         return
     device = select_device()
