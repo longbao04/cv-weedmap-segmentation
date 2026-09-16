@@ -35,6 +35,7 @@ IGNORE_COLOR = np.array((0.5, 0.5, 0.5), dtype=np.float32)
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", default="data/weedmap")
+    parser.add_argument("--sample-list-csv", default=None)
     parser.add_argument(
         "--input-type", choices=INPUT_CHOICES, default="multispectral"
     )
@@ -142,6 +143,7 @@ def main():
         data_root=args.data_root,
         input_type=args.input_type,
         filter_empty=True,
+        sample_list_csv=args.sample_list_csv,
     )
     if not 0 <= args.sample_index < len(dataset):
         raise IndexError(

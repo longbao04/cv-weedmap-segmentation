@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", default="data/weedmap")
+    parser.add_argument("--sample-list-csv", default=None)
     parser.add_argument(
         "--input-type", choices=INPUT_CHOICES, default="multispectral"
     )
@@ -133,11 +134,13 @@ def main():
     args = parse_args()
     seed_everything(args.seed)
     device = select_device()
+    print(f"sample_list_csv: {args.sample_list_csv}")
 
     dataset = WeedMapDataset(
         data_root=args.data_root,
         input_type=args.input_type,
         filter_empty=True,
+        sample_list_csv=args.sample_list_csv,
     )
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size

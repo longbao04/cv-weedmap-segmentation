@@ -99,6 +99,8 @@ Multispectral 的 mean IoU 和 weed IoU 更高，初步表明多光谱通道对�
 
 运行 `python build_common_sample_list.py` 可生成 `splits/real_weedmap_common_samples.csv`。列表只包含 RGB 与五通道 multispectral 输入、彩色标签及 mask 都齐全，且过滤空输入和无前景标签后的样本。构建这份共享样本列表，是为了让 RGB 和 multispectral 在完全相同的样本上使用相同训练/验证划分，公平比较输入通道带来的差异；现有对比结果尚未使用此列表。
 
+为了严格比较 RGB 和 multispectral，需要让二者使用同一个 `sample_list_csv`（训练脚本参数 `--sample-list-csv`），避免样本数量不同导致比较不公平。
+
 ## 下一步计划
 
 - 基于 RGB 和 multispectral 共享样本列表，在相同样本与数据划分上做严格公平对比；

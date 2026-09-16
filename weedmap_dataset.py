@@ -1,5 +1,6 @@
 """PyTorch Dataset for the local WeedMap Tiles data."""
 
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -47,6 +48,7 @@ class WeedMapDataset(Dataset):
         filter_empty=True,
         min_valid_pixels=1000,
         min_foreground_pixels=1,
+        sample_list_csv=None,
     ):
         if input_type not in ("rgb", "multispectral"):
             raise ValueError("input_type must be 'rgb' or 'multispectral'")
@@ -68,21 +70,34 @@ class WeedMapDataset(Dataset):
         self.filter_empty = filter_empty
         self.min_valid_pixels = min_valid_pixels
         self.min_foreground_pixels = min_foreground_pixels
+        self.sample_list_csv = sample_list_csv
         self.samples = []
         skipped_missing = 0
         skipped_empty = 0
 
-        for subset_name in self.subsets:
-            subset_id = subset_name.rsplit("_", 1)[-1]
+        if sample_list_csv is None:
+            sample_entries = (
+                (subset_name, subset_name.rsplit("_", 1)[-1], None)
+                for subset_name in self.subsets
+            )
+        else:
+            sample_entries = self._read_sample_list(sample_list_csv)
+
+        for subset_name, subset_id, listed_sample_id in sample_entries:
             subset_root = self.data_root / subset_name / subset_id
             groundtruth_dir = subset_root / "groundtruth"
             mask_dir = subset_root / "mask"
             tile_dir = subset_root / "tile"
 
-            sample_ids = self._discover_sample_ids(
-                subset_id, groundtruth_dir, mask_dir, tile_dir
-            )
-            for sample_id in sorted(sample_ids):
+            if listed_sample_id is None:
+                sample_ids = sorted(
+                    self._discover_sample_ids(
+                        subset_id, groundtruth_dir, mask_dir, tile_dir
+                    )
+                )
+            else:
+                sample_ids = (listed_sample_id,)
+            for sample_id in sample_ids:
                 color_path = (
                     groundtruth_dir
                     / f"{subset_id}_{sample_id}_GroundTruth_color.png"
@@ -113,6 +128,37 @@ class WeedMapDataset(Dataset):
             f"skipped missing samples={skipped_missing}, "
             f"skipped empty/invalid samples={skipped_empty}"
         )
+
+    @staticmethod
+    def _read_sample_list(sample_list_csv):
+        """Read the shared list in CSV order, without scanning other tiles."""
+        entries = []
+        seen = set()
+        with Path(sample_list_csv).open(newline="", encoding="utf-8-sig") as file:
+            reader = csv.DictReader(file)
+            required = {"sensor", "subset_id", "sample_id"}
+            if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+                raise ValueError(
+                    "sample_list_csv must have sensor, subset_id, sample_id columns"
+                )
+            for line_number, row in enumerate(reader, start=2):
+                values = tuple(
+                    (row.get(field) or "").strip()
+                    for field in ("sensor", "subset_id", "sample_id")
+                )
+                if any(
+                    not value or Path(value).name != value or value in (".", "..")
+                    for value in values
+                ):
+                    raise ValueError(
+                        f"Invalid sample_list_csv entry on line {line_number}"
+                    )
+                sensor, subset_id, sample_id = values
+                key = (sensor, subset_id, sample_id)
+                if key not in seen:
+                    entries.append((f"{sensor}_{subset_id}", subset_id, sample_id))
+                    seen.add(key)
+        return entries
 
     @staticmethod
     def _discover_sample_ids(subset_id, groundtruth_dir, mask_dir, tile_dir):
