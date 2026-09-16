@@ -82,7 +82,7 @@ def as_display_rgb(image):
 
 def print_imap_counts(imap):
     values, counts = np.unique(imap, return_counts=True)
-    class_names = {0: "background", 1: "crop", 2: "weed", 10000: "ignore / non-class"}
+    class_names = {0: "background", 2: "weed", 10000: "crop"}
     print("GT_iMap unique values and counts:")
     for value, count in zip(values, counts):
         integer_value = int(value)
@@ -108,15 +108,14 @@ def make_figure(images, sample_id):
     weed_color = np.array([1.0, 0.1, 0.1], dtype=np.float32)
     overlay[weed] = 0.55 * rgb[weed] + 0.45 * weed_color
 
-    # Map the sparse ignore value 10000 to a compact display index.
-    imap_display = np.full(imap.shape, 4, dtype=np.uint8)
+    # Map WeedMap's sparse iMap values to compact display indices.
+    imap_display = np.full(imap.shape, 3, dtype=np.uint8)
     imap_display[imap == 0] = 0
-    imap_display[imap == 1] = 1
+    imap_display[imap == 10000] = 1
     imap_display[imap == 2] = 2
-    imap_display[imap == 10000] = 3
-    label_colors = ("#70543a", "#28b946", "#ef3b32", "#b8b8b8", "#8e44ad")
+    label_colors = ("#70543a", "#28b946", "#ef3b32", "#8e44ad")
     label_cmap = ListedColormap(label_colors)
-    label_norm = BoundaryNorm(np.arange(-0.5, 5.5, 1), label_cmap.N)
+    label_norm = BoundaryNorm(np.arange(-0.5, 4.5, 1), label_cmap.N)
 
     fig, axes = plt.subplots(2, 4, figsize=(16, 9))
     panels = (
@@ -136,10 +135,9 @@ def make_figure(images, sample_id):
 
     legend_items = (
         (label_colors[0], "0: background"),
-        (label_colors[1], "1: crop"),
+        (label_colors[1], "10000: crop"),
         (label_colors[2], "2: weed"),
-        (label_colors[3], "10000: ignore"),
-        (label_colors[4], "other value"),
+        (label_colors[3], "other value"),
     )
     fig.legend(
         handles=[Patch(facecolor=color, label=label) for color, label in legend_items],

@@ -30,6 +30,7 @@ cv-weedmap-segmentation/
 ├── synthetic_experiment_notes.md
 ├── synthetic_segmentation_report.md
 ├── inspect_dataset_structure.py
+├── analyze_real_weedmap_labels.py
 ├── visualize_sample_placeholder.py
 ├── visualize_real_weedmap_sample.py
 ├── synthetic_dataset.py
@@ -58,6 +59,14 @@ python -m py_compile inspect_dataset_structure.py visualize_sample_placeholder.p
 第一个脚本在数据缺失时会给出提示；第二个脚本使用 numpy 构造假数据，显示 image、mask 和 overlay 三张图，不读取 WeedMap 数据。
 
 ## 真实 WeedMap 样本可视化
+
+分析 8 个本地真实 WeedMap Tiles 子集的标签分布、color → iMap 像素级映射、有效区域 mask，并将逐样本统计保存到 `outputs/real_weedmap_label_summary.csv`：
+
+```bash
+python analyze_real_weedmap_labels.py
+```
+
+默认数据根目录为 `data/weedmap`；脚本只读取本地数据，不训练模型。可通过 `--data-root`、`--output` 和 `--subsets` 调整输入与输出。
 
 本地已有 `data/weedmap/RedEdge_004/004` 数据时，可读取默认的 `frame0070`，显示 RGB、NDVI、NIR、RedEdge、彩色真值、iMap、有效区域 mask，以及叠加在 RGB 上的 weed 区域：
 

@@ -16,6 +16,18 @@ mask / annotation 是语义分割标签，用于表示每个像素所属的类�
 
 真实数据中，crop 和 weed 比 soil/background 更难区分：作物和杂草都属于植被，光谱与外观可能相似，还受到生长阶段、遮挡、阴影和空间分辨率影响。植被指数可以帮助区分植被与非植被，但不能简单等同于作物/杂草分类。
 
+## 真实 WeedMap 标签映射验证
+
+对当前本地 8 个 WeedMap Tiles 子集的 `GroundTruth_color`、`GroundTruth_iMap` 和 `mask` 配对文件进行逐像素验证后，标签映射为：
+
+- color 标签中 black、green、red 分别对应 background、crop、weed；
+- 本地像素级验证发现 iMap 中 green crop 对应 `10000`；
+- red weed 对应 `2`；
+- black background 对应 `0`；
+- `mask=0` 是有效区域，`mask=255` 是无效/no-data 区域。
+
+因此，后续训练建议优先从 `GroundTruth_color` 生成 `0/1/2` 训练 mask，或者将 iMap 重新映射为 `0=background, 1=crop, 2=weed`。逐样本及逐子集验证可运行 `python analyze_real_weedmap_labels.py`；生成的 CSV 位于 `outputs/real_weedmap_label_summary.csv`，不提交到 Git。
+
 ## 当前 RedEdge_004 数据结构与统计
 
 当前本地子集位于 `data/weedmap/RedEdge_004/004`，包含以下目录：
@@ -39,6 +51,6 @@ mask / annotation 是语义分割标签，用于表示每个像素所属的类�
 
 - RedEdge_004 有 117 个样本。
 - 图像大小为 360×480（高×宽）。
-- 当前子集的 GT_iMap 出现 background=0、weed=2、ignore=10000。
-- 当前统计中 crop=1 没有出现；这是该子集的实际情况，不应把 weed 误映射为 crop。
-- 因此 RedEdge_004 适合先做真实数据读取和 weed 可视化，但完整三分类训练还需要检查其他 RedEdge 子集。
+- 当前子集的 GT_iMap 出现 background=0、weed=2、crop=10000。
+- 当前统计中值 1 没有出现；本地逐像素验证表明值 10000 是 crop，不能将其当作 ignore。
+- 因此读取真实数据时需要先将 iMap 的 10000 重映射为训练类别 1，或直接从彩色标签生成训练 mask。
