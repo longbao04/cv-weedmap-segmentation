@@ -261,12 +261,52 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 
 三个 seed 的 best epoch 均为 Epoch 15，说明当前设置在 20 epochs 内的最佳轮次比较稳定。三个 seed 的 mean IoU 位于 73.88%～75.47%，波动较小；weed IoU 均超过 54%，明显高于 10 epochs best 的 50.43%。多 seed 平均 weed IoU 为 56.89% ± 2.06%，支持 20 epochs 的提升不是偶然的单次结果。当前可将 `multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint` 作为后续 baseline。
 
+## Loss 多 seed 对比实验
+
+### 实验设置
+
+- `sample_list_csv=splits/real_weedmap_common_samples.csv`
+- `input_type=multispectral`
+- `epochs=20`，`batch_size=2`
+- train samples：`363`；val samples：`91`
+- `ignore_index=255`
+- seeds：`0`、`1`、`2`
+- 使用 best checkpoint，根据 val mean IoU 保存最佳模型
+- 对比 Weighted CE（`background=1.0`、`crop=4.0`、`weed=8.0`）、Focal Loss、Dice + CE。Weighted CE 各 seed 明细见上一节。
+
+### Focal Loss：各 seed 的 best checkpoint 验证集结果
+
+| Seed | Best Epoch | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 20 | 96.59% | 74.72% | 97.09% | 69.55% | 57.52% |
+| 1 | 19 | 96.51% | 72.56% | 97.17% | 66.14% | 54.36% |
+| 2 | 19 | 96.99% | 74.73% | 97.30% | 72.12% | 54.77% |
+
+### Dice + CE：各 seed 的 best checkpoint 验证集结果
+
+| Seed | Best Epoch | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 18 | 96.81% | 76.35% | 97.17% | 72.07% | 59.82% |
+| 1 | 19 | 96.92% | 76.44% | 97.26% | 71.39% | 60.67% |
+| 2 | 16 | 96.46% | 70.56% | 97.20% | 65.14% | 49.35% |
+
+### 三种 loss 的均值与样本标准差
+
+| Loss | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|
+| Weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
+| Focal Loss | 96.69% ± 0.26% | 74.00% ± 1.25% | 97.19% ± 0.11% | 69.27% ± 3.00% | 55.55% ± 1.72% |
+| Dice + CE | 96.73% ± 0.24% | 74.45% ± 3.37% | 97.21% ± 0.05% | 69.54% ± 3.82% | 56.61% ± 6.31% |
+
+Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU 也最高，为 56.89% ± 2.06%。Focal Loss 的 background IoU 较高，weed IoU 的跨 seed 波动也较小，但平均 weed IoU 略低于 Weighted CE。Dice + CE 在 seed=0 和 seed=1 上表现很强，seed=2 的 mean IoU 和 weed IoU 明显下降，因此样本标准差较大。当前阶段最稳的主 baseline 仍是 `multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint`。Dice + CE 有后续探索价值，需要进一步调参或增加 seed 验证稳定性。
+
 ## 阶段性结论
 
-目前真实 WeedMap 实验最推荐报告多 seed 平均结果，而不是某一次单独训练结果；20 epochs baseline 的验证集 mean IoU 为 74.78% ± 0.82%，weed IoU 为 56.89% ± 2.06%（三个 seed 的样本标准差）。
+目前真实 WeedMap 实验最推荐报告 Weighted CE 的三 seed 平均结果（均值 ± 样本标准差）：Pixel Accuracy = 96.38% ± 0.36%，Mean IoU = 74.78% ± 0.82%，Weed IoU = 56.89% ± 2.06%。
 
 ## 下一步计划
 
-- 后续将比较 weighted CE、Focal Loss、Dice+CE 在真实 WeedMap crop/weed/background 分割上的效果。
+- 生成 loss 对比曲线图。
+- 可尝试调节 Dice + CE 的权重系数，例如 `CE + 0.5 Dice` 或 `CE + 2 Dice`，并增加 seed 验证稳定性。
 - 可尝试 30 epochs，但必须继续根据 val mean IoU 使用 best checkpoint；
-- 后续需要给导师时再重新生成 docx。
+- 后续需要给导师提交时再重新生成 docx。
