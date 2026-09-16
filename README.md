@@ -16,6 +16,10 @@ WeedMap 的 sugar beet field（甜菜田）场景与导师提出的水稻/柑橘
 
 项目已进入 synthetic U-Net 的 RGB 输入 vs 多光谱输入对比阶段，在真实 WeedMap 数据之前用模拟数据跑通分割流程。项目不包含或下载真实数据，不训练真实 WeedMap。数据理解摘要见 `dataset_notes.md`，后续安排见 `project_plan.md`，实验记录见 `synthetic_experiment_notes.md`。
 
+## 实验报告
+
+[`synthetic_segmentation_report.md`](synthetic_segmentation_report.md) 是 synthetic U-Net 分割实验总结报告，汇总了 baseline、class weights、训练稳定性、loss function 对比，以及 RGB 与 multispectral 输入对比结果。
+
 ## 项目结构
 
 ```text
@@ -24,6 +28,7 @@ cv-weedmap-segmentation/
 ├── project_plan.md
 ├── dataset_notes.md
 ├── synthetic_experiment_notes.md
+├── synthetic_segmentation_report.md
 ├── inspect_dataset_structure.py
 ├── visualize_sample_placeholder.py
 ├── synthetic_dataset.py
