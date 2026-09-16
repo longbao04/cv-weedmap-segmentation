@@ -190,8 +190,43 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 5. 当前后续实验可以继续以 `background=1.0`、`crop=4.0`、`weed=8.0` 作为默认 weighted CE 设置。
 6. 后续若继续调参，可以尝试更细粒度的 `weed weight=10`，或者改用 Focal Loss / Dice + CE。
 
+## 20 epochs 训练实验
+
+### 实验设置
+
+- `sample_list_csv=splits/real_weedmap_common_samples.csv`
+- `input_type=multispectral`
+- `loss=weighted_ce`
+- class weights：`background=1.0`、`crop=4.0`、`weed=8.0`
+- `epochs=20`
+- `batch_size=2`
+- train samples：`363`
+- val samples：`91`
+- `ignore_index=255`
+- 使用 best checkpoint，根据 val mean IoU 保存最佳模型
+
+### 验证集整体结果
+
+| Setting | Best Epoch | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|---:|
+| 10 epochs best | 8 | 95.47% | 70.38% | 96.09% | 64.61% | 50.43% |
+| 20 epochs best | 15 | 95.97% | 73.88% | 96.20% | 70.89% | 54.54% |
+
+20 epochs best checkpoint 明显优于 10 epochs best checkpoint：mean IoU 从 70.38% 提升到 73.88%，weed IoU 从 50.43% 提升到 54.54%，crop IoU 从 64.61% 提升到 70.89%。这说明在真实 WeedMap 上继续训练到 20 epochs 是有效的。
+
+但 Epoch 15 之后指标仍有波动。例如，Epoch 20 的 mean IoU 降到 69.52%，weed IoU 降到 46.82%，因此 best checkpoint 机制仍然必要。
+
+### 单张 sample index=0 可视化结果
+
+| Model | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|
+| 10 epochs best | 94.19% | 60.77% | 94.96% | 53.49% | 33.85% |
+| 20 epochs best | 94.82% | 63.90% | 95.32% | 59.39% | 36.99% |
+
+单张预测可视化上，20 epochs best 同样优于 10 epochs best。错误仍主要集中在 crop/weed 边界、小目标 weed 以及植物混杂区域。后续可以继续尝试更长训练，例如 30 epochs，但必须使用 best checkpoint。更重要的下一步是进行多 seed 重复实验，验证 20 epochs 的提升是否稳定。
+
 ## 下一步计划
 
-- 尝试 20 epochs，并使用 best checkpoint；
-- 尝试 Focal Loss 或 CE + Dice 组合；
-- 做多 seed 重复实验，验证当前结论是否稳定。
+- 运行 20 epochs 多 seed 重复实验，验证当前提升是否稳定；
+- 尝试 Focal Loss 或 Dice + CE；
+- 后续如果需要给导师提交，可以再重新生成 docx。

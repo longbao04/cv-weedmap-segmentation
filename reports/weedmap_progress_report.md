@@ -1,7 +1,7 @@
 # 基于无人机多光谱影像的作物、杂草、土壤/背景区分实验进度报告
 
 **项目：** cv-weedmap-segmentation  
-**当前阶段：** Synthetic 模拟实验完成，真实 WeedMap 数据读取、标签验证、Dataset 构建、U-Net 训练、严格公平 RGB vs multispectral 对比及 weed class weight 调参完成
+**当前阶段：** Synthetic 模拟实验完成，真实 WeedMap 数据读取、标签验证、Dataset 构建、U-Net 训练、严格公平 RGB vs multispectral 对比、weed class weight 调参及 20 epochs multispectral 实验完成
 
 ---
 
@@ -396,7 +396,42 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 5. 当前后续实验可继续使用 `background=1.0`、`crop=4.0`、`weed=8.0` 作为默认 weighted CE 设置。
 6. 若继续细化权重，可尝试 `weed weight=10`；也可改用 Focal Loss 或 Dice + CE，比较不同类别不平衡处理方法。
 
-## 19. 真实预测可视化与误差分析
+## 19. 20 epochs 训练实验
+
+### 实验设置
+
+- `sample_list_csv=splits/real_weedmap_common_samples.csv`；
+- `input_type=multispectral`；
+- `loss=weighted_ce`；
+- class weights：`background=1.0`、`crop=4.0`、`weed=8.0`；
+- `epochs=20`；
+- `batch_size=2`；
+- train samples：363；
+- val samples：91；
+- `ignore_index=255`；
+- 使用 best checkpoint，根据 val mean IoU 保存最佳模型。
+
+### 验证集整体结果
+
+| Setting | Best Epoch | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|---:|
+| 10 epochs best | 8 | 95.47% | 70.38% | 96.09% | 64.61% | 50.43% |
+| 20 epochs best | 15 | 95.97% | 73.88% | 96.20% | 70.89% | 54.54% |
+
+20 epochs best checkpoint 明显优于 10 epochs best checkpoint：mean IoU 从 70.38% 提升到 73.88%，weed IoU 从 50.43% 提升到 54.54%，crop IoU 从 64.61% 提升到 70.89%。这说明在真实 WeedMap 上继续训练到 20 epochs 是有效的。
+
+但 Epoch 15 之后指标仍有波动。例如，Epoch 20 的 mean IoU 降到 69.52%，weed IoU 降到 46.82%，因此 best checkpoint 机制仍然必要。
+
+### 单张 sample index=0 可视化结果
+
+| Model | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|
+| 10 epochs best | 94.19% | 60.77% | 94.96% | 53.49% | 33.85% |
+| 20 epochs best | 94.82% | 63.90% | 95.32% | 59.39% | 36.99% |
+
+单张预测可视化上，20 epochs best 同样优于 10 epochs best。错误仍主要集中在 crop/weed 边界、小目标 weed 以及植物混杂区域。后续可以继续尝试更长训练，例如 30 epochs，但必须使用 best checkpoint。更重要的下一步是进行多 seed 重复实验，验证 20 epochs 的提升是否稳定。
+
+## 20. 真实预测可视化与误差分析
 
 ### 3 epochs
 
@@ -426,7 +461,7 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 
 单样本指标低于整体验证集的最终指标并不矛盾，说明不同样本难度存在差异。整体上，**真实农业遥感中的 weed 具有面积小、分布散、外观与作物相近等特点，是当前最难类别之一。**
 
-## 20. 评价指标解释
+## 21. 评价指标解释
 
 1. **Pixel Accuracy**：所有有效像素中预测正确的比例。若背景占比很大，即使 weed 预测较差，accuracy 仍可能很高。
 2. **IoU**：`intersection / union`，分别计算某一类别预测区域与真实区域的交集占并集的比例。
@@ -434,7 +469,7 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 4. **Weed IoU**：本项目最重要的指标之一。导师课题中的杂草识别是关键难点，weed 通常面积小、分布零散，并容易与作物或土壤混淆。
 5. **ignore_index=255**：无效区域不参与训练 loss 和指标计算，避免模型学习无意义的黑边或 no-data 区域。
 
-## 21. 当前阶段主要结论
+## 22. 当前阶段主要结论
 
 1. 已从传统 CV / synthetic 实验推进到真实 UAV 多光谱语义分割数据。
 2. 光谱指数实验说明土壤与植被较容易区分，但 crop 与 weed 均属于植被，二者更难区分。
@@ -449,8 +484,9 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 11. Multispectral 的 best checkpoint 位于 Epoch 8，整体验证集 mean IoU 为 70.38%、weed IoU 为 50.43%，均优于 Epoch 10；后续实验应保存并优先使用 best checkpoint。
 12. Weed class weight 调参中，权重 8 的 best mean IoU 和 weed IoU 最高；权重提高到 12 和 16 后指标下降，说明类别权重需要保持三类之间的平衡。
 13. 当前可将 `background=1.0`、`crop=4.0`、`weed=8.0` 作为默认 weighted CE 设置，并继续验证更长训练、其他 loss 和多 seed 稳定性。
+14. 20 epochs 的最佳模型位于 Epoch 15，验证集 mean IoU 为 73.88%、weed IoU 为 54.54%，均高于 10 epochs best，说明延长训练有效；Epoch 20 指标回落也进一步说明 best checkpoint 必不可少。
 
-## 22. 当前项目已完成内容
+## 23. 当前项目已完成内容
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
@@ -464,23 +500,23 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 | 真实数据读取 | WeedMap Tiles 解压和结构检查 | 完成 |
 | 标签验证 | color / iMap / mask 映射验证 | 完成 |
 | Dataset | WeedMapDataset | 完成 |
-| 真实训练 | multispectral weighted CE 3/10 epochs | 完成 |
+| 真实训练 | multispectral weighted CE 3/10/20 epochs | 完成 |
 | 真实输入对比 | RGB vs multispectral weighted CE 10 epochs（相同 454 个样本） | 严格公平对比完成 |
 | Best checkpoint | 按 val mean IoU 保存并验证 Epoch 8 最佳模型 | 完成 |
 | Weed class weight 调参 | Multispectral 下比较 weed weight 8 / 12 / 16 | 完成 |
+| 20 epochs 训练 | Multispectral weighted CE，Epoch 15 best mean IoU 73.88% | 完成 |
 | 预测可视化 | 真实样本预测图和 error map | 完成 |
 
-## 23. 下一步实验计划
+## 24. 下一步实验计划
 
-1. **训练轮数实验**
-   - 尝试 20 epochs，并根据 val mean IoU 使用 best checkpoint；
-   - 与现有 10 epochs 结果对比，观察 weed IoU 是否继续提升以及是否出现过拟合。
-2. **Loss 对比实验**
-   - 尝试 Focal Loss 或 CE + Dice 组合；
-   - 与默认 `background=1.0`、`crop=4.0`、`weed=8.0` 的 weighted CE 比较。
-3. **多 seed 重复实验**
-   - 做多 seed 重复实验，验证当前权重结论是否稳定；
+1. **多 seed 重复实验**
+   - 运行 20 epochs 多 seed 重复实验，验证当前提升是否稳定；
    - 使用 `mean ± std` 汇报结果。
+2. **Loss 对比实验**
+   - 尝试 Focal Loss 或 Dice + CE；
+   - 与默认 `background=1.0`、`crop=4.0`、`weed=8.0` 的 weighted CE 比较。
+3. **更长训练**
+   - 可以尝试 30 epochs，但必须根据 val mean IoU 使用 best checkpoint。
 4. **数据增强**
    - 加入 random flip、rotation、brightness/noise；
    - 增强模型对无人机视角、光照和成像噪声变化的鲁棒性。
@@ -488,7 +524,9 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
    - 水稻田：水稻/杂草/土壤；
    - 柑橘田：柑橘/杂草/土壤；
    - 根据真实传感器通道和数据质量调整输入与预处理。
+6. **导师提交材料**
+   - 后续如果需要给导师提交，可以再重新生成 docx。
 
-## 24. 给导师汇报时可以说的话
+## 25. 给导师汇报时可以说的话
 
-老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我整理了真实 WeedMap Tiles 数据并完成标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。严格公平的 RGB 与 multispectral 对比使用相同的 454 个样本，其中 train 363 个、val 91 个。Multispectral 的 mean IoU 为 67.76%，高于 RGB 的 65.27%；weed IoU 为 46.73%，也明显高于 RGB 的 34.56%，说明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 略高，说明 RGB 对作物行状结构也有一定优势。由于 weed 是课题的关键难点，多光谱方向更值得深入。训练脚本已根据 val mean IoU 保存 best checkpoint。继续在 multispectral 上比较 weed weight 8、12 和 16 后，权重 8 的结果最好，最佳模型位于 Epoch 8，达到 70.38% mean IoU 和 50.43% weed IoU；权重继续增大时两项指标均下降，说明类别权重需要保持三类之间的平衡。后续将使用权重 8 作为 weighted CE 默认设置，尝试 20 epochs、Focal Loss 或 CE + Dice，并进行多 seed 重复实验。
+老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我整理了真实 WeedMap Tiles 数据并完成标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。严格公平的 RGB 与 multispectral 对比使用相同的 454 个样本，其中 train 363 个、val 91 个。Multispectral 的 mean IoU 为 67.76%，高于 RGB 的 65.27%；weed IoU 为 46.73%，也明显高于 RGB 的 34.56%，说明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 略高，说明 RGB 对作物行状结构也有一定优势。由于 weed 是课题的关键难点，多光谱方向更值得深入。继续在 multispectral 上比较 weed weight 8、12 和 16 后，权重 8 的结果最好。使用该权重训练 20 epochs 时，最佳模型位于 Epoch 15，验证集 mean IoU 达到 73.88%，weed IoU 达到 54.54%，高于 10 epochs best 的 70.38% 和 50.43%，说明延长训练有效。Epoch 20 的 mean IoU 和 weed IoU 分别回落到 69.52% 和 46.82%，因此后续仍需按 val mean IoU 使用 best checkpoint。下一步将运行 20 epochs 多 seed 重复实验，并尝试 Focal Loss 或 Dice + CE。
