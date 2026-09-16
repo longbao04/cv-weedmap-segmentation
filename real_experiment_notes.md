@@ -16,6 +16,20 @@
 
 真实农田图像通常存在明显类别不平衡，background 像素较多，weed 像素较少。默认使用 background=1.0、crop=4.0、weed=8.0 的 weighted cross entropy，提高作物和杂草误分类的代价，减少训练被背景类别主导的风险。最终效果仍需结合各类别 IoU 判断。
 
+## 第一次真实训练结果
+
+- `input_type=multispectral`
+- `loss=weighted_ce`
+- `epochs=3`
+- train loss：`0.4497 -> 0.2724 -> 0.2532`
+- Epoch 3 val pixel accuracy：`95.61%`
+- val mean IoU：`56.37%`
+- background IoU：`97.15%`
+- crop IoU：`56.28%`
+- weed IoU：`15.68%`
+
+整体像素准确率较高，但 weed IoU 明显低于 background 和 crop。下一步将通过真实预测可视化检查 weed 的漏检、误检、边界混淆及小目标表现，分析 weed IoU 较低的原因。
+
 ## 后续比较
 
 后续将在相同数据划分、随机种子、训练轮数和学习率下比较 RGB 与 multispectral 输入，重点观察 mean IoU、crop IoU 和 weed IoU，检验额外光谱通道是否在真实数据上带来稳定收益。

@@ -34,6 +34,7 @@ cv-weedmap-segmentation/
 ├── analyze_real_weedmap_labels.py
 ├── visualize_sample_placeholder.py
 ├── visualize_real_weedmap_sample.py
+├── visualize_real_weedmap_prediction.py
 ├── weedmap_dataset.py
 ├── synthetic_dataset.py
 ├── unet.py
@@ -100,6 +101,16 @@ python train_real_weedmap_unet.py --input-type multispectral --loss weighted_ce 
 默认读取 `data/weedmap`，按固定随机种子划分 80% 训练集和 20% 验证集。多光谱输入使用 G、R、RedEdge、NIR、NDVI 五个通道；RGB 输入使用三个通道。标签 255 作为 `ignore_index`，不参与 loss 或验证指标，也不会被当作第 4 类。默认 weighted CE 权重为 background=1.0、crop=4.0、weed=8.0。
 
 每个 epoch 输出 train loss、验证集 pixel accuracy、mean IoU 和三类 IoU。默认模型保存到 `models/real_weedmap_<input_type>_<loss>.pth`，可用 `--save-path` 修改；history 保存到 `outputs/real_weedmap_history_<input_type>_<loss>.csv`。`models/` 和 `outputs/` 会自动创建且已被 Git 忽略。可用 `--data-root`、`--batch-size`、`--lr`、`--seed` 和 `--num-workers` 调整训练参数。
+
+## 真实 WeedMap 预测可视化
+
+使用已训练的真实 WeedMap U-Net 模型可视化单张样本的输入、NDVI、真值、预测、错误区域和预测叠加图：
+
+```bash
+python visualize_real_weedmap_prediction.py
+```
+
+脚本默认加载 `models/real_weedmap_multispectral_weighted_ce.pth`，读取过滤后的第 0 个 multispectral 样本，并将图片保存到 `outputs/real_weedmap_prediction_multispectral_weighted_ce.png`。终端会打印忽略标签 255 后的 pixel accuracy、background/crop/weed IoU 和 mean IoU。可通过 `--data-root`、`--input-type`、`--loss`、`--model-path`、`--sample-index` 和 `--output` 调整运行参数；使用 RGB 输入时需要指定与三通道模型对应的权重文件。
 
 ## 训练过程记录与曲线
 
