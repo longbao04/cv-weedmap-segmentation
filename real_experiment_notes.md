@@ -267,7 +267,6 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 
 ## 下一步计划
 
-- 尝试 Focal Loss；
-- 尝试 Dice + CE；
+- 后续将比较 weighted CE、Focal Loss、Dice+CE 在真实 WeedMap crop/weed/background 分割上的效果。
 - 可尝试 30 epochs，但必须继续根据 val mean IoU 使用 best checkpoint；
 - 后续需要给导师时再重新生成 docx。

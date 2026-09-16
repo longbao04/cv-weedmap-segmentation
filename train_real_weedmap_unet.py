@@ -11,6 +11,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, random_split
 
+from losses import DiceLoss, FocalLoss
 from unet import SmallUNet
 from weedmap_dataset import WeedMapDataset
 
@@ -18,9 +19,24 @@ from weedmap_dataset import WeedMapDataset
 NUM_CLASSES = 3
 IGNORE_INDEX = 255
 CLASS_NAMES = ("background", "crop", "weed")
-LOSS_CHOICES = ("ce", "weighted_ce")
+LOSS_CHOICES = ("ce", "weighted_ce", "focal", "dice_ce")
 INPUT_CHOICES = ("rgb", "multispectral")
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+class DiceCELoss(nn.Module):
+    """Sum ordinary cross entropy and multiclass Dice loss."""
+
+    def __init__(self, num_classes=NUM_CLASSES, ignore_index=IGNORE_INDEX):
+        super().__init__()
+        self.cross_entropy = nn.CrossEntropyLoss(ignore_index=ignore_index)
+        self.dice = DiceLoss(
+            num_classes=num_classes,
+            ignore_index=ignore_index,
+        )
+
+    def forward(self, logits, targets):
+        return self.cross_entropy(logits, targets) + self.dice(logits, targets)
 
 
 def parse_args():
@@ -192,6 +208,19 @@ def main():
         )
         criterion = nn.CrossEntropyLoss(
             weight=class_weights, ignore_index=IGNORE_INDEX
+        )
+    elif args.loss == "focal":
+        class_weights = None
+        criterion = FocalLoss(
+            num_classes=NUM_CLASSES,
+            ignore_index=IGNORE_INDEX,
+            gamma=2.0,
+        )
+    elif args.loss == "dice_ce":
+        class_weights = None
+        criterion = DiceCELoss(
+            num_classes=NUM_CLASSES,
+            ignore_index=IGNORE_INDEX,
         )
     else:
         class_weights = None

@@ -121,9 +121,11 @@ python build_common_sample_list.py
 python train_real_weedmap_unet.py --input-type multispectral --loss weighted_ce --epochs 3
 python train_real_weedmap_unet.py --input-type multispectral --loss weighted_ce --epochs 10 --batch-size 2 --save-path models/real_weedmap_multispectral_weighted_ce_10epochs.pth
 python train_real_weedmap_unet.py --input-type multispectral --loss weighted_ce --weed-weight 12 --sample-list-csv splits/real_weedmap_common_samples.csv
+python train_real_weedmap_unet.py --input-type multispectral --loss focal --epochs 20 --sample-list-csv splits/real_weedmap_common_samples.csv
+python train_real_weedmap_unet.py --input-type multispectral --loss dice_ce --epochs 20 --sample-list-csv splits/real_weedmap_common_samples.csv
 ```
 
-默认读取 `data/weedmap`，按固定随机种子划分 80% 训练集和 20% 验证集。多光谱输入使用 G、R、RedEdge、NIR、NDVI 五个通道；RGB 输入使用三个通道。标签 255 作为 `ignore_index`，不参与 loss 或验证指标，也不会被当作第 4 类。默认 weighted CE 权重为 background=1.0、crop=4.0、weed=8.0。
+默认读取 `data/weedmap`，按固定随机种子划分 80% 训练集和 20% 验证集。多光谱输入使用 G、R、RedEdge、NIR、NDVI 五个通道；RGB 输入使用三个通道。标签 255 作为 `ignore_index`，不参与 loss 或验证指标，也不会被当作第 4 类。支持普通 CE（`ce`）、加权 CE（`weighted_ce`）、Focal Loss（`focal`）和 Dice+CE（`dice_ce`）；默认 weighted CE 权重为 background=1.0、crop=4.0、weed=8.0。Focal Loss 使用 `gamma=2.0` 且不使用 alpha；Dice+CE 中的 CE 部分不使用 class weights。
 
 公平比较 RGB 与 multispectral 时，可让两次训练使用同一份共享样本列表：
 
