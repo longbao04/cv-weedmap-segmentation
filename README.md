@@ -31,6 +31,7 @@ cv-weedmap-segmentation/
 ├── synthetic_segmentation_report.md
 ├── inspect_dataset_structure.py
 ├── visualize_sample_placeholder.py
+├── visualize_real_weedmap_sample.py
 ├── synthetic_dataset.py
 ├── unet.py
 ├── losses.py
@@ -55,6 +56,16 @@ python -m py_compile inspect_dataset_structure.py visualize_sample_placeholder.p
 ```
 
 第一个脚本在数据缺失时会给出提示；第二个脚本使用 numpy 构造假数据，显示 image、mask 和 overlay 三张图，不读取 WeedMap 数据。
+
+## 真实 WeedMap 样本可视化
+
+本地已有 `data/weedmap/RedEdge_004/004` 数据时，可读取默认的 `frame0070`，显示 RGB、NDVI、NIR、RedEdge、彩色真值、iMap、有效区域 mask，以及叠加在 RGB 上的 weed 区域：
+
+```bash
+python visualize_real_weedmap_sample.py
+```
+
+图片默认保存到 `outputs/real_weedmap_sample_frame0070.png`，终端同时打印该样本 GT_iMap 的 unique values 和 counts。可通过 `--data-root`、`--sample-id` 和 `--output` 指定其他数据目录、样本及输出路径。
 
 ## 训练过程记录与曲线
 
