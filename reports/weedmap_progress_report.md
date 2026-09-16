@@ -1,7 +1,7 @@
 # 基于无人机多光谱影像的作物、杂草、土壤/背景区分实验进度报告
 
 **项目：** cv-weedmap-segmentation  
-**当前阶段：** Synthetic 模拟实验完成，真实 WeedMap 数据读取、标签验证、Dataset 构建与 U-Net 初步训练完成
+**当前阶段：** Synthetic 模拟实验完成，真实 WeedMap 数据读取、标签验证、Dataset 构建、U-Net 初步训练及 RGB vs multispectral 初步对比完成
 
 ---
 
@@ -299,7 +299,20 @@ loss 持续下降，说明模型能够正常学习；background IoU 很高，cro
 
 训练延长后，weed IoU 从 15.68% 提升至 45.76%，mean IoU 从 56.37% 提升至 69.21%。**增加训练轮数对真实 WeedMap 的 weed 类非常有效，且 Epoch 8～10 的明显提升表明 weed 类学习速度较慢。** 同时，中间轮次仍有波动，后续需通过更长训练与多 seed 实验判断稳定性。
 
-## 16. 真实预测可视化与误差分析
+## 16. 真实 RGB vs Multispectral 输入对比实验
+
+真实 WeedMap 数据上，分别以 RGB 和 multispectral 输入使用 `weighted_ce` 训练 10 epochs，验证集结果如下：
+
+| Input | Train Loss | Val Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|---:|
+| RGB | 0.2956 | 94.28% | 65.27% | 95.49% | 65.75% | 34.56% |
+| Multispectral | 0.1781 | 97.22% | 69.21% | 97.69% | 64.17% | 45.76% |
+
+Multispectral 的 mean IoU 和 weed IoU 更高，初步表明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 略高，但整体 mean IoU 和 weed IoU 不如 multispectral。对于作物、杂草、土壤/背景区分任务，weed 是关键难点，因此 multispectral 当前更值得继续深入。
+
+**这仍是初步对比，不能据此断言提升完全来自输入波段：**RGB Dataset 有 454 个有效样本，multispectral Dataset 有 884 个有效样本，两者样本集合不完全一致。后续需构造共享样本列表，让两种输入使用同一批样本，再比较各项指标，进行严格公平对比。
+
+## 17. 真实预测可视化与误差分析
 
 ### 3 epochs
 
@@ -329,7 +342,7 @@ loss 持续下降，说明模型能够正常学习；background IoU 很高，cro
 
 单样本指标低于整体验证集的最终指标并不矛盾，说明不同样本难度存在差异。整体上，**真实农业遥感中的 weed 具有面积小、分布散、外观与作物相近等特点，是当前最难类别之一。**
 
-## 17. 评价指标解释
+## 18. 评价指标解释
 
 1. **Pixel Accuracy**：所有有效像素中预测正确的比例。若背景占比很大，即使 weed 预测较差，accuracy 仍可能很高。
 2. **IoU**：`intersection / union`，分别计算某一类别预测区域与真实区域的交集占并集的比例。
@@ -337,7 +350,7 @@ loss 持续下降，说明模型能够正常学习；background IoU 很高，cro
 4. **Weed IoU**：本项目最重要的指标之一。导师课题中的杂草识别是关键难点，weed 通常面积小、分布零散，并容易与作物或土壤混淆。
 5. **ignore_index=255**：无效区域不参与训练 loss 和指标计算，避免模型学习无意义的黑边或 no-data 区域。
 
-## 18. 当前阶段主要结论
+## 19. 当前阶段主要结论
 
 1. 已从传统 CV / synthetic 实验推进到真实 UAV 多光谱语义分割数据。
 2. 光谱指数实验说明土壤与植被较容易区分，但 crop 与 weed 均属于植被，二者更难区分。
@@ -348,9 +361,10 @@ loss 持续下降，说明模型能够正常学习；background IoU 很高，cro
 7. 真实数据中 background 最容易、crop 次之、weed 最难。
 8. 10 epochs 相比 3 epochs 明显提升 weed IoU，说明 weed 类需要更长训练。
 9. 当前模型已经具备初步区分作物、杂草和土壤/背景的能力，但 weed 仍存在漏检和边界误差。
-10. 后续需继续开展真实 RGB 与 multispectral 对比、loss/class weights 调整、增加训练轮数和多 seed 重复实验。
+10. 真实 RGB 与 multispectral 的初步对比中，多光谱的 mean IoU 和 weed IoU 更高，但两种输入的有效样本集合不完全一致，尚需共享样本上的公平对比。
+11. 后续需继续开展 loss/class weights 调整、增加训练轮数和多 seed 重复实验。
 
-## 19. 当前项目已完成内容
+## 20. 当前项目已完成内容
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
@@ -365,21 +379,22 @@ loss 持续下降，说明模型能够正常学习；background IoU 很高，cro
 | 标签验证 | color / iMap / mask 映射验证 | 完成 |
 | Dataset | WeedMapDataset | 完成 |
 | 真实训练 | multispectral weighted CE 3/10 epochs | 完成 |
+| 真实输入对比 | RGB vs multispectral weighted CE 10 epochs（样本集合不同） | 初步完成，待公平对比 |
 | 预测可视化 | 真实样本预测图和 error map | 完成 |
 
-## 20. 下一步实验计划
+## 21. 下一步实验计划
 
-1. **真实 RGB vs multispectral 对比**
-   - 训练 RGB 输入模型；
-   - 与 multispectral 输入比较 crop IoU、weed IoU 和 mean IoU。
+1. **真实 RGB vs multispectral 严格公平对比**
+   - 构造 RGB 和 multispectral 共享样本列表，使用同一批样本；
+   - 在相同数据划分与训练设置下比较 crop IoU、weed IoU 和 mean IoU。
 2. **Loss 和 class weights 调参**
-   - 尝试 weed 权重 8、12、16；
+   - 在当前 weed 权重 8 的基础上尝试 weed class weight = 12 或 16；
    - 比较 weighted CE、Focal Loss 和 Dice Loss。
 3. **训练轮数和稳定性实验**
-   - 对比 10 epochs 与 20 epochs；
+   - 继续做 20 epochs，与现有 10 epochs 结果对比；
    - 观察 weed IoU 是否继续提升，以及是否出现过拟合。
 4. **多 seed 重复实验**
-   - 降低单次划分与初始化带来的偶然性；
+   - 继续做多 seed 实验，降低单次划分与初始化带来的偶然性；
    - 使用 `mean ± std` 汇报结果。
 5. **数据增强**
    - 加入 random flip、rotation、brightness/noise；
@@ -389,6 +404,6 @@ loss 持续下降，说明模型能够正常学习；background IoU 很高，cro
    - 柑橘田：柑橘/杂草/土壤；
    - 根据真实传感器通道和数据质量调整输入与预处理。
 
-## 21. 给导师汇报时可以说的话
+## 22. 给导师汇报时可以说的话
 
-老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我下载并整理了真实 WeedMap Tiles 数据，完成了标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。现在真实多光谱 U-Net 已经能正常训练，3 epochs 时 weed IoU 为 15.68%，10 epochs 提升至 45.76%，说明模型已经开始学习杂草区域，但 weed 仍然是最难类别。下一步我准备开展真实 RGB 和 multispectral 对比，并继续调整 loss、class weights 和训练轮数，提高 weed 分割效果。
+老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我下载并整理了真实 WeedMap Tiles 数据，完成了标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。现在真实多光谱 U-Net 已经能正常训练，3 epochs 时 weed IoU 为 15.68%，10 epochs 提升至 45.76%，说明模型已经开始学习杂草区域，但 weed 仍然是最难类别。真实 RGB 与 multispectral 的初步对比中，多光谱的 mean IoU 和 weed IoU 更高；但两种输入的有效样本集合不同，下一步会用共享样本做公平对比，并继续调整 class weights、训练轮数和随机种子，提高 weed 分割效果。

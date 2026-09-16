@@ -84,6 +84,21 @@ weed IoU 从 `15.68%` 提升到 `45.76%`，说明增加训练轮数对真实 Wee
 - 真实 WeedMap 中 weed 是最难类别，训练轮数不足时容易漏检。
 - 不能只看 pixel accuracy，必须重点看 weed IoU 和 mean IoU。
 
-## 后续比较
+## 真实 RGB vs Multispectral 输入对比实验
 
-后续将在相同数据划分、随机种子、训练轮数和学习率下比较 RGB 与 multispectral 输入，重点观察 mean IoU、crop IoU 和 weed IoU，检验额外光谱通道是否在真实数据上带来稳定收益。
+真实 WeedMap 数据上，RGB 和 multispectral 输入均使用 `weighted_ce` 训练 10 epochs，验证集结果如下：
+
+| Input | Train Loss | Val Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|---:|
+| RGB | 0.2956 | 94.28% | 65.27% | 95.49% | 65.75% | 34.56% |
+| Multispectral | 0.1781 | 97.22% | 69.21% | 97.69% | 64.17% | 45.76% |
+
+Multispectral 的 mean IoU 和 weed IoU 更高，初步表明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 略高，但整体 mean IoU 和 weed IoU 不如 multispectral。对作物、杂草、土壤/背景区分任务来说，weed 是关键难点，因此 multispectral 当前更值得继续深入。
+
+**对比局限：**RGB Dataset 有 454 个有效样本，multispectral Dataset 有 884 个有效样本，样本集合不完全一致，因此当前结果仍是初步对比，不能单独归因于输入通道。后续需要让 RGB 和 multispectral 使用同一批样本，再比较指标。
+
+## 下一步计划
+
+- 构造 RGB 和 multispectral 共享样本列表，在相同样本与数据划分上做严格公平对比；
+- 尝试 weed class weight = 12 或 16；
+- 继续做 20 epochs 和多 seed 实验。
