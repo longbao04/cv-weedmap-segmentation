@@ -408,7 +408,7 @@ def add_cover(doc: Document) -> None:
 
     cover_rows = [
         ("研究方向", "无人机农业遥感 / 多光谱图像语义分割"),
-        ("当前阶段", "Synthetic 模拟实验完成，真实 WeedMap 数据读取、标签验证、Dataset 构建、U-Net 初步训练完成"),
+        ("当前阶段", "Synthetic 与真实 WeedMap 实验完成，已完成严格公平输入对比、best checkpoint 验证、类别权重调参、20 epochs 与多 seed loss 对比"),
         ("汇报内容", "项目构思、实验流程、模型方法、关键变量、实验结果、可视化分析、下一步计划"),
     ]
     table = add_table(doc, ["基本信息", "阶段说明"], cover_rows, widths=[3.2, 12.6], numeric_from=2, font_size=9.5)
@@ -418,7 +418,7 @@ def add_cover(doc: Document) -> None:
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before = Pt(16)
-    r = p.add_run("阶段结论  真实多光谱 U-Net 已跑通，10 epochs 的 weed IoU 提升至 45.76%")
+    r = p.add_run("阶段结论  稳定 baseline 的 Mean IoU 为 74.78% ± 0.82%，Weed IoU 为 56.89% ± 2.06%")
     set_run_font(r, east_asia="Hiragino Sans GB", size=11, bold=True, color=BLUE)
     doc.add_page_break()
 
@@ -430,7 +430,10 @@ def add_toc(doc: Document) -> None:
         "Synthetic 语义分割实验", "Class weights 与 loss function 对比",
         "Synthetic RGB vs multispectral 对比", "真实 WeedMap 数据读取与结构检查",
         "真实标签映射验证", "WeedMap PyTorch Dataset", "真实 WeedMap U-Net 训练",
-        "10 epochs 稳定性实验", "真实预测可视化与误差分析", "关键指标和变量解释",
+        "10 epochs 稳定性实验", "严格公平 RGB vs Multispectral 对比",
+        "Best checkpoint 验证", "Weed class weight 调参", "20 epochs 训练实验",
+        "20 epochs 多 seed 重复实验", "Loss 多 seed 对比实验",
+        "真实预测可视化与误差分析", "关键指标和变量解释",
         "当前结论", "下一步计划", "给导师汇报时可以说的话",
     ]
     table = doc.add_table(rows=0, cols=2)
@@ -462,7 +465,7 @@ def add_route_table(doc: Document) -> None:
     ]
     rows = []
     for idx, step in enumerate(steps, 1):
-        rows.append((f"{idx:02d}", step, "已完成" if idx <= 8 else "下一阶段"))
+        rows.append((f"{idx:02d}", step, "已完成"))
     add_table(doc, ["步骤", "实验环节", "进度"], rows, widths=[1.7, 10.2, 3.9], numeric_from=2, font_size=9.5)
 
 
@@ -495,7 +498,7 @@ def build_document(curve_generated: bool) -> None:
     add_heading(doc, "2 整体实验路线")
     add_paragraph(doc, "实验采用由可控模拟到真实数据的递进路线。先通过光谱指数与 synthetic 数据验证原理和代码，再进入真实 WeedMap 数据，避免数据格式、标签映射、类别不平衡与模型训练问题同时出现。")
     add_route_table(doc)
-    add_paragraph(doc, "当前已完成真实预测可视化与误差分析。下一阶段重点比较真实 RGB 与 multispectral 输入，并继续调整损失函数、类别权重和训练轮数。", bold_lead="当前进度：")
+    add_paragraph(doc, "当前已完成真实预测可视化、严格公平 RGB 与 multispectral 对比、best checkpoint 验证、weed class weight 调参、20 epochs 多 seed 重复和三种 loss 的多 seed 对比。", bold_lead="当前进度：")
 
     add_heading(doc, "3 光谱指数模拟实验")
     add_paragraph(doc, "为理解多光谱数据的作用，首先模拟三类地物的典型反射率，并计算 NDVI 与 NDRE。数值用于验证光谱差异的方向和阈值方法，不代表具体田块的实测反射率。")
@@ -644,7 +647,97 @@ def build_document(curve_generated: bool) -> None:
     ], widths=[3.3, 2.5, 2.3, 2.8, 2.3, 2.3], font_size=8.0)
     add_paragraph(doc, "Weed IoU 从 15.68% 提升到 45.76%，mean IoU 从 56.37% 提升到 69.21%。增加训练轮数对真实 WeedMap 的 weed 类非常有效；中间轮次仍有波动，后续应通过更长训练和多 seed 实验判断稳定性。", bold_lead="主要结果：")
 
-    add_heading(doc, "13 真实预测可视化与误差分析")
+    add_heading(doc, "13 严格公平 RGB vs Multispectral 对比")
+    add_heading(doc, "13.1 实验设置", level=2)
+    add_bullets(doc, [
+        "RGB 和 multispectral 使用同一个 sample_list_csv，以及完全相同的 454 个样本。",
+        "训练集 363 个样本，验证集 91 个样本；两种输入使用相同的数据划分。",
+        "统一使用 weighted CE、10 epochs、batch size=2 和 ignore_index=255。",
+        "Class weights 统一为 background=1.0、crop=4.0、weed=8.0。",
+    ])
+    add_paragraph(doc, "控制样本集合、数据划分、训练轮数、loss 和类别权重后，可以更可靠地判断输入通道带来的差异。")
+    add_heading(doc, "13.2 实验结果", level=2)
+    add_table(doc, ["Input", "Train Loss", "Val Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+        ("RGB", "0.2956", "94.28%", "65.27%", "95.49%", "65.75%", "34.56%"),
+        ("Multispectral", "0.2166", "94.38%", "67.76%", "94.94%", "61.62%", "46.73%"),
+    ], widths=[2.7, 2.0, 2.4, 2.1, 2.7, 2.1, 2.1], numeric_from=1, font_size=7.2)
+    add_paragraph(doc, "Multispectral 的 mean IoU 比 RGB 高 2.49 个百分点，weed IoU 高 12.17 个百分点，表明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 高 4.13 个百分点，但 weed 是本课题的关键难点，因此后续继续使用 multispectral。")
+    add_paragraph(doc, "Multispectral 在 Epoch 8 的 mean IoU 为 70.38%、weed IoU 为 50.43%，均高于 Epoch 10 的 67.76% 和 46.73%，说明训练后期存在波动。", bold_lead="训练波动：")
+
+    add_heading(doc, "14 Best checkpoint 验证结果")
+    add_paragraph(doc, "严格公平 multispectral 实验根据验证集 mean IoU 保存 best checkpoint。整体结果和最后一轮的对比如下。")
+    add_table(doc, ["Checkpoint", "Epoch", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+        ("Best checkpoint", "8", "70.38%", "96.09%", "64.61%", "50.43%"),
+        ("Final checkpoint", "10", "67.76%", "94.94%", "61.62%", "46.73%"),
+    ], widths=[3.5, 1.7, 2.5, 3.0, 2.5, 2.6], numeric_from=1, font_size=8.0)
+    add_paragraph(doc, "Best model path：models/real_weedmap_common_multispectral_weighted_ce_10epochs_best.pth", bold_lead="Best model path：", style="Small Note", indent=False)
+    add_table(doc, ["单张 sample index=0", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+        ("Epoch 10 final", "92.63%", "57.12%", "93.41%", "48.42%", "29.53%"),
+        ("Best checkpoint", "94.19%", "60.77%", "94.96%", "53.49%", "33.85%"),
+    ], widths=[3.8, 2.3, 2.3, 2.8, 2.3, 2.3], numeric_from=1, font_size=7.8)
+    add_paragraph(doc, "Best checkpoint 在整体验证集和单张样本上都优于最后一轮。后续实验应根据验证集 mean IoU 保存并优先报告 best checkpoint，避免训练后期波动掩盖最佳性能。")
+
+    add_heading(doc, "15 Weed class weight 调参实验")
+    add_paragraph(doc, "在严格公平对比确定 multispectral 输入后，保持 363/91 的训练与验证划分、weighted CE、10 epochs、batch size=2 和 best checkpoint 规则不变，将 background/crop 权重固定为 1/4，仅比较 weed 权重 8、12、16。")
+    add_table(doc, ["Weed Weight", "Best Epoch", "Best Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+        ("8", "8", "70.38%", "96.09%", "64.61%", "50.43%"),
+        ("12", "8", "69.64%", "95.25%", "64.63%", "49.04%"),
+        ("16", "8", "67.98%", "94.72%", "62.88%", "46.36%"),
+    ], widths=[2.8, 2.4, 2.8, 3.0, 2.5, 2.5], numeric_from=0, font_size=8.0, first_col_left=False)
+    add_paragraph(doc, "Weed weight=8 的 best mean IoU 和 weed IoU 均最高。权重提高到 12 和 16 后指标下降，说明 weed 权重并非越大越好；过大的权重会破坏三类之间的平衡。因此默认 class weights 继续采用 1/4/8。", bold_lead="结果判断：")
+
+    add_heading(doc, "16 20 epochs 训练实验")
+    add_paragraph(doc, "在 multispectral + weighted CE + class weights 1/4/8 设置下，将训练延长到 20 epochs，并继续根据验证集 mean IoU 选择 best checkpoint。")
+    add_table(doc, ["Setting", "Best Epoch", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+        ("10 epochs best", "8", "95.47%", "70.38%", "96.09%", "64.61%", "50.43%"),
+        ("20 epochs best", "15", "95.97%", "73.88%", "96.20%", "70.89%", "54.54%"),
+    ], widths=[3.2, 1.9, 2.2, 2.1, 2.7, 2.2, 2.2], numeric_from=1, font_size=7.3)
+    add_paragraph(doc, "20 epochs best checkpoint 将 mean IoU 从 70.38% 提升到 73.88%，weed IoU 从 50.43% 提升到 54.54%，crop IoU 从 64.61% 提升到 70.89%。Epoch 20 的 mean IoU 回落到 69.52%、weed IoU 回落到 46.82%，进一步说明 best checkpoint 必不可少。")
+    add_table(doc, ["单张 sample index=0", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+        ("10 epochs best", "94.19%", "60.77%", "94.96%", "53.49%", "33.85%"),
+        ("20 epochs best", "94.82%", "63.90%", "95.32%", "59.39%", "36.99%"),
+    ], widths=[3.8, 2.3, 2.3, 2.8, 2.3, 2.3], numeric_from=1, font_size=7.8)
+
+    add_heading(doc, "17 20 epochs 多 seed 重复实验")
+    add_paragraph(doc, "使用固定的 363/91 数据划分、multispectral 输入、weighted CE、class weights 1/4/8、20 epochs 和 best checkpoint，分别运行 seed 0、1、2。")
+    add_table(doc, ["Seed", "Best Epoch", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+        ("0", "15", "95.97%", "73.88%", "96.20%", "70.89%", "54.54%"),
+        ("1", "15", "96.51%", "74.99%", "96.96%", "69.59%", "58.44%"),
+        ("2", "15", "96.65%", "75.47%", "96.94%", "71.80%", "57.68%"),
+    ], widths=[1.6, 2.1, 2.3, 2.2, 2.7, 2.3, 2.3], numeric_from=0, font_size=7.5, first_col_left=False)
+    add_heading(doc, "17.1 多 seed 均值与样本标准差", level=2)
+    add_table(doc, ["Metric", "Mean ± Std"], [
+        ("Pixel Accuracy", "96.38% ± 0.36%"),
+        ("Mean IoU", "74.78% ± 0.82%"),
+        ("Background IoU", "96.70% ± 0.43%"),
+        ("Crop IoU", "70.76% ± 1.11%"),
+        ("Weed IoU", "56.89% ± 2.06%"),
+    ], widths=[7.9, 7.9], numeric_from=1, font_size=9.2)
+    add_paragraph(doc, "三个 seed 的 best epoch 均为 Epoch 15，mean IoU 位于 73.88%～75.47%，weed IoU 均超过 54%。多 seed 结果表明，20 epochs 带来的提升不是单次运行的偶然结果。")
+
+    add_heading(doc, "18 Loss 多 seed 对比实验")
+    add_paragraph(doc, "保持 multispectral 输入、20 epochs、363/91 数据划分、seed 0/1/2 和 best checkpoint 规则一致，对比 Weighted CE、Focal Loss 与 Dice + CE。Weighted CE 使用 class weights 1/4/8。")
+    add_heading(doc, "18.1 Focal Loss 与 Dice + CE 各 seed 结果", level=2)
+    add_table(doc, ["Loss", "Seed", "Best Epoch", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+        ("Focal", "0", "20", "96.59%", "74.72%", "97.09%", "69.55%", "57.52%"),
+        ("Focal", "1", "19", "96.51%", "72.56%", "97.17%", "66.14%", "54.36%"),
+        ("Focal", "2", "19", "96.99%", "74.73%", "97.30%", "72.12%", "54.77%"),
+        ("Dice + CE", "0", "18", "96.81%", "76.35%", "97.17%", "72.07%", "59.82%"),
+        ("Dice + CE", "1", "19", "96.92%", "76.44%", "97.26%", "71.39%", "60.67%"),
+        ("Dice + CE", "2", "16", "96.46%", "70.56%", "97.20%", "65.14%", "49.35%"),
+    ], widths=[2.4, 1.1, 1.7, 1.9, 1.9, 2.3, 1.9, 1.9], numeric_from=1, font_size=6.6)
+    add_heading(doc, "18.2 三种 loss 的均值与样本标准差", level=2)
+    add_table(doc, ["Loss", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+        ("Weighted CE", "96.38% ± 0.36%", "74.78% ± 0.82%", "96.70% ± 0.43%", "70.76% ± 1.11%", "56.89% ± 2.06%"),
+        ("Focal Loss", "96.69% ± 0.26%", "74.00% ± 1.25%", "97.19% ± 0.11%", "69.27% ± 3.00%", "55.55% ± 1.72%"),
+        ("Dice + CE", "96.73% ± 0.24%", "74.45% ± 3.37%", "97.21% ± 0.05%", "69.54% ± 3.82%", "56.61% ± 6.31%"),
+    ], widths=[2.8, 2.7, 2.7, 3.0, 2.7, 2.7], numeric_from=1, font_size=6.8)
+    if add_figure(doc, ASSETS_DIR / "real_weedmap_loss_comparison_seed0.png", "真实 WeedMap seed 0 的 Weighted CE、Focal Loss 与 Dice + CE 对比", fig_no, 16.4):
+        fig_no += 1
+    add_paragraph(doc, "Weighted CE 的平均 mean IoU 和 weed IoU 均为三种 loss 中最高，且跨 seed 波动较小。Dice + CE 在 seed 0 和 1 上表现较强，但 seed 2 明显下降，稳定性仍需进一步验证。")
+    add_paragraph(doc, "当前最稳定 baseline 是 multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint。主结果为 Pixel Accuracy = 96.38% ± 0.36%，Mean IoU = 74.78% ± 0.82%，Weed IoU = 56.89% ± 2.06%（均值 ± 样本标准差）。", bold_lead="阶段主结论：")
+
+    add_heading(doc, "19 真实预测可视化与误差分析")
     three_epoch = ASSETS_DIR / "real_prediction_3epochs.png"
     if add_figure(doc, three_epoch, "真实 WeedMap 3 epochs 预测结果，包含输入、真值、预测与 error map", fig_no, 16.4):
         fig_no += 1
@@ -660,7 +753,7 @@ def build_document(curve_generated: bool) -> None:
         "Weed 仍存在漏检；其面积小、分布零散且外观与作物相近，是当前真实农业遥感中最难的类别。",
     ])
 
-    add_heading(doc, "14 关键指标和变量解释")
+    add_heading(doc, "20 关键指标和变量解释")
     add_table(doc, ["指标或变量", "含义与使用注意"], [
         ("Pixel Accuracy", "所有有效像素中预测正确的比例。背景占比大时，该值可能很高，但 weed 仍可能预测较差。"),
         ("IoU", "Intersection over Union，衡量某一类别预测区域与真实区域的交集占并集的比例。"),
@@ -671,7 +764,7 @@ def build_document(curve_generated: bool) -> None:
         ("class weights", "提高少数类错误对 loss 的贡献，缓解 background 占比过高造成的偏置。"),
     ], widths=[4.0, 11.8], numeric_from=2, font_size=9)
 
-    add_heading(doc, "15 当前结论")
+    add_heading(doc, "21 当前结论")
     conclusions = [
         "已经从 synthetic 实验推进到真实 UAV 多光谱语义分割数据。",
         "光谱指数实验说明土壤与植被较容易区分，但 crop 和 weed 都属于植被，二者更难区分。",
@@ -682,10 +775,16 @@ def build_document(curve_generated: bool) -> None:
         "真实数据中 background 最容易，crop 次之，weed 最难。",
         "10 epochs 相比 3 epochs 明显提升 weed IoU。",
         "当前模型已具备初步区分作物、杂草、土壤或背景的能力，但 weed 仍有漏检与边界误差。",
-        "后续需要比较真实 RGB 与 multispectral，调整 loss 与 class weights，增加训练轮数并开展多 seed 实验。",
+        "严格公平对比使用相同的 454 个样本；multispectral 的 mean IoU 和 weed IoU 高于 RGB，其中 weed IoU 高 12.17 个百分点。",
+        "Multispectral 的 10 epochs best checkpoint 位于 Epoch 8，mean IoU 为 70.38%、weed IoU 为 50.43%，优于最后一轮模型。",
+        "Weed class weight 调参中，权重 8 的 best mean IoU 和 weed IoU 最高；提高到 12 和 16 后指标下降。",
+        "20 epochs 的三个 seed 均在 Epoch 15 取得 best checkpoint；平均 Mean IoU 为 74.78% ± 0.82%，平均 Weed IoU 为 56.89% ± 2.06%。",
+        "Loss 多 seed 对比中，Weighted CE 的平均 mean IoU 和 weed IoU 最高；Dice + CE 的 seed 2 明显下降，稳定性仍需验证。",
+        "当前最稳定 baseline 是 multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint。",
+        "当前主结果：Pixel Accuracy = 96.38% ± 0.36%，Mean IoU = 74.78% ± 0.82%，Weed IoU = 56.89% ± 2.06%。",
     ]
     add_bullets(doc, conclusions, numbered=True)
-    add_heading(doc, "15.1 当前项目完成内容", level=2)
+    add_heading(doc, "21.1 当前项目完成内容", level=2)
     add_table(doc, ["阶段", "内容", "状态"], [
         ("环境搭建", "Python、PyTorch、MPS、VS Code、Codex、GitHub", "完成"),
         ("光谱基础", "NDVI/NDRE 模拟 crop/weed/soil", "完成"),
@@ -697,24 +796,27 @@ def build_document(curve_generated: bool) -> None:
         ("真实数据读取", "WeedMap Tiles 解压和结构检查", "完成"),
         ("标签验证", "color / iMap / mask 映射验证", "完成"),
         ("Dataset", "WeedMapDataset", "完成"),
-        ("真实训练", "multispectral weighted CE 3/10 epochs", "完成"),
+        ("真实训练", "multispectral weighted CE 3/10/20 epochs", "完成"),
+        ("真实输入对比", "RGB vs multispectral，使用相同 454 个样本", "严格公平对比完成"),
+        ("Best checkpoint", "按 val mean IoU 保存并验证最佳模型", "完成"),
+        ("Weed class weight 调参", "Multispectral 下比较 weed weight 8/12/16", "完成"),
+        ("20 epochs 多 seed", "Seed 0/1/2，均在 Epoch 15 取得最佳结果", "完成"),
+        ("真实 loss 多 seed 对比", "Weighted CE / Focal Loss / Dice + CE", "完成"),
         ("预测可视化", "真实样本预测图和 error map", "完成"),
     ], widths=[4.2, 9.4, 2.2], numeric_from=2, font_size=8.5)
 
-    add_heading(doc, "16 下一步计划")
+    add_heading(doc, "22 下一步计划")
     plans = [
-        "真实 RGB vs multispectral 对比：保持划分、训练轮数和评价方式一致，比较 crop IoU、weed IoU 与 mean IoU。",
-        "Loss 与 class weights 调参：比较 weighted CE、Focal、Dice，并测试 weed 权重 8、12、16。",
-        "训练轮数与稳定性实验：比较 10 epochs 与 20 epochs，观察 weed IoU 是否继续提升及是否过拟合。",
-        "多 seed 重复实验：降低单次数据划分与初始化的偶然性，使用 mean ± std 汇报。",
+        "Loss 后续调参：尝试 CE + 0.5 Dice 或 CE + 2 Dice，并增加 seed 验证稳定性。",
+        "更长训练：可尝试 30 epochs，但继续根据验证集 mean IoU 使用 best checkpoint。",
         "数据增强：加入 random flip、rotation、brightness/noise，提高对视角、光照与成像噪声的适应性。",
         "迁移到导师实验田：面向水稻田和柑橘田的作物、杂草、土壤区分，按实际传感器与标签调整输入和预处理。",
     ]
     add_bullets(doc, plans, numbered=True)
 
-    add_heading(doc, "17 给导师汇报时可以说的话")
+    add_heading(doc, "23 给导师汇报时可以说的话")
     speech = (
-        "老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草、土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我下载并整理了真实 WeedMap Tiles 数据，完成了标签映射验证，发现本地数据中 color 标签最可靠，因此 Dataset 中从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。现在真实多光谱 U-Net 已经能训练，3 epochs 时 weed IoU 是 15.68%，10 epochs 提升到 45.76%，说明模型已经开始学习杂草区域，但 weed 仍然是最难类别。下一步我准备做 RGB 和 multispectral 对比，并继续调整 loss 和 class weights，提高 weed 分割效果。"
+        "老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期实验确认类别不平衡会使模型忽视 weed，加入 class weights 后 weed IoU 明显提升。真实数据实验中，我完成了标签映射与无效区域处理，并在相同 454 个样本上进行了严格公平的 RGB 与 multispectral 对比。Multispectral 的 mean IoU 和 weed IoU 更高，其中 weed IoU 比 RGB 高 12.17 个百分点。随后验证了 best checkpoint 的必要性，并比较 weed weight 8、12、16，结果显示 1/4/8 的类别权重最好。使用这一设置训练 20 epochs 后，三个 seed 均在 Epoch 15 取得 best checkpoint。进一步比较 Weighted CE、Focal Loss 和 Dice + CE 的多 seed 结果，Weighted CE 的平均 mean IoU 和 weed IoU 最高，Dice + CE 的跨 seed 波动较大。因此当前最稳定 baseline 是 multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint。主要结果为 Pixel Accuracy = 96.38% ± 0.36%，Mean IoU = 74.78% ± 0.82%，Weed IoU = 56.89% ± 2.06%，均为三次 seed 实验的均值 ± 样本标准差。"
     )
     p = add_paragraph(doc, speech, indent=False)
     p.paragraph_format.left_indent = Cm(0.8)
