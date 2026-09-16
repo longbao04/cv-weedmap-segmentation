@@ -20,6 +20,20 @@ WeedMap 的 sugar beet field（甜菜田）场景与导师提出的水稻/柑橘
 
 [`synthetic_segmentation_report.md`](synthetic_segmentation_report.md) 是 synthetic U-Net 分割实验总结报告，汇总了 baseline、class weights、训练稳定性、loss function 对比，以及 RGB 与 multispectral 输入对比结果。
 
+## 项目进度报告
+
+面向导师汇报的完整实验进度、真实 WeedMap 训练结果与后续计划见 [`reports/weedmap_progress_report.md`](reports/weedmap_progress_report.md)。
+
+## 导师汇报版 Word 报告
+
+生成命令：
+
+```bash
+python make_progress_report_docx.py
+```
+
+生成的 Word 文档位于 `reports/weedmap_progress_report.docx`，图片会复制到 `reports/assets/` 并直接嵌入文档。该文件可使用 Microsoft Word 或 macOS Pages 打开。
+
 ## 项目结构
 
 ```text
