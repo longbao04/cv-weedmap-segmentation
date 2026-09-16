@@ -131,7 +131,7 @@ python train_real_weedmap_unet.py --input-type rgb --sample-list-csv splits/real
 python train_real_weedmap_unet.py --input-type multispectral --sample-list-csv splits/real_weedmap_common_samples.csv
 ```
 
-每个 epoch 输出 train loss、验证集 pixel accuracy、mean IoU 和三类 IoU。默认模型保存到 `models/real_weedmap_<input_type>_<loss>.pth`，可用 `--save-path` 修改；history 保存到 `outputs/real_weedmap_history_<input_type>_<loss>.csv`。`models/` 和 `outputs/` 会自动创建且已被 Git 忽略。可用 `--data-root`、`--batch-size`、`--lr`、`--seed` 和 `--num-workers` 调整训练参数。
+每个 epoch 输出 train loss、验证集 pixel accuracy、mean IoU 和三类 IoU。训练结束时保存最后一轮模型；验证集 mean IoU 创新高时同时保存 best checkpoint。默认最后一轮模型路径为 `models/real_weedmap_<input_type>_<loss>.pth`，best 模型在文件名后缀前加 `_best`；例如 `--save-path models/xxx.pth` 对应 `models/xxx_best.pth`。history 保存到 `outputs/real_weedmap_history_<input_type>_<loss>.csv`，其中 `is_best` 标记当时刷新最佳 mean IoU 的 epoch。`models/` 和 `outputs/` 会自动创建且已被 Git 忽略。可用 `--data-root`、`--batch-size`、`--lr`、`--seed` 和 `--num-workers` 调整训练参数。
 
 ## 真实 WeedMap 预测可视化
 

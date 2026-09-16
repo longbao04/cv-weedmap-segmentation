@@ -117,10 +117,9 @@ RGB 和 Multispectral 使用同一个 sample list、相同样本数和相同训�
 
 ### 最佳轮次与训练波动
 
-Multispectral 在 Epoch 8 达到更好结果：mean IoU 为 70.38%，weed IoU 为 50.43%；Epoch 10 的 mean IoU 为 67.76%，weed IoU 为 46.73%。这说明训练后期存在波动，后续应该根据验证集 mean IoU 保存 best checkpoint，而不是只保存最后一轮模型。
+Multispectral 在 Epoch 8 达到更好结果：mean IoU 为 70.38%，weed IoU 为 50.43%；Epoch 10 的 mean IoU 为 67.76%，weed IoU 为 46.73%。真实 WeedMap 训练后期存在波动，后续实验应优先报告验证集 mean IoU 最优的 best checkpoint 指标，而不仅仅是最后一轮指标。训练脚本现已同时保存 best checkpoint 和最后一轮模型。
 
 ## 下一步计划
 
-- 给 `train_real_weedmap_unet.py` 增加 best model checkpoint，根据验证集 mean IoU 保存最佳模型；
 - 继续比较 weed class weight = 12 和 16；
 - 做 20 epochs 和多 seed 重复实验。

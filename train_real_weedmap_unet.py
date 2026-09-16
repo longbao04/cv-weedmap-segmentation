@@ -191,6 +191,9 @@ def main():
         model_dir / f"real_weedmap_{args.input_type}_{args.loss}.pth"
     )
     model_path.parent.mkdir(parents=True, exist_ok=True)
+    best_model_path = model_path.with_name(
+        f"{model_path.stem}_best{model_path.suffix}"
+    )
     history_path = (
         output_dir / f"real_weedmap_history_{args.input_type}_{args.loss}.csv"
     )
@@ -202,6 +205,7 @@ def main():
         "background_iou",
         "crop_iou",
         "weed_iou",
+        "is_best",
     )
     with history_path.open("w", newline="", encoding="utf-8") as history_file:
         csv.DictWriter(history_file, fieldnames=fieldnames).writeheader()
@@ -215,6 +219,9 @@ def main():
     if class_weights is not None:
         print("class weights: background=1.0, crop=4.0, weed=8.0")
 
+    best_val_mean_iou = -math.inf
+    best_epoch = None
+    best_class_ious = None
     for epoch in range(1, args.epochs + 1):
         model.train()
         loss_sum = 0.0
@@ -240,6 +247,16 @@ def main():
         pixel_accuracy, mean_iou, class_ious = evaluate_real_data(
             model, val_loader, device
         )
+        is_best = mean_iou > best_val_mean_iou
+        if is_best:
+            best_val_mean_iou = mean_iou
+            best_epoch = epoch
+            best_class_ious = class_ious
+            # Save CPU tensors so the checkpoint loads on MPS, CUDA, or CPU.
+            torch.save(
+                {name: value.detach().cpu() for name, value in model.state_dict().items()},
+                best_model_path,
+            )
         history_row = {
             "epoch": epoch,
             "train_loss": train_loss,
@@ -248,6 +265,7 @@ def main():
             "background_iou": class_ious[0],
             "crop_iou": class_ious[1],
             "weed_iou": class_ious[2],
+            "is_best": int(is_best),
         }
         with history_path.open("a", newline="", encoding="utf-8") as history_file:
             csv.DictWriter(history_file, fieldnames=fieldnames).writerow(history_row)
@@ -269,6 +287,12 @@ def main():
     )
     print(f"模型已保存到 {model_path}")
     print(f"训练 history 已保存到 {history_path}")
+    print(f"best epoch: {best_epoch}")
+    print(f"best val mean IoU: {best_val_mean_iou:.4f}")
+    print(f"best background IoU: {best_class_ious[0]:.4f}")
+    print(f"best crop IoU: {best_class_ious[1]:.4f}")
+    print(f"best weed IoU: {best_class_ious[2]:.4f}")
+    print(f"best model path: {best_model_path}")
 
 
 if __name__ == "__main__":
