@@ -84,25 +84,43 @@ weed IoU 从 `15.68%` 提升到 `45.76%`，说明增加训练轮数对真实 Wee
 - 真实 WeedMap 中 weed 是最难类别，训练轮数不足时容易漏检。
 - 不能只看 pixel accuracy，必须重点看 weed IoU 和 mean IoU。
 
-## 真实 RGB vs Multispectral 输入对比实验
+## 严格公平 RGB vs Multispectral 对比实验
 
-真实 WeedMap 数据上，RGB 和 multispectral 输入均使用 `weighted_ce` 训练 10 epochs，验证集结果如下：
+### 实验设置
+
+- `sample_list_csv=splits/real_weedmap_common_samples.csv`
+- RGB 和 Multispectral 使用完全相同的 454 个样本
+- train samples：`363`
+- val samples：`91`
+- `input_type` 分别为 `rgb` 和 `multispectral`
+- `loss=weighted_ce`
+- `epochs=10`
+- `batch_size=2`
+- class weights：`background=1.0`、`crop=4.0`、`weed=8.0`
+- `ignore_index=255`
+
+RGB 和 Multispectral 使用同一个 sample list、相同样本数和相同训练/验证划分，因此这次对比比之前样本集合不同的实验更公平，可以更可靠地比较输入通道带来的差异。
+
+### 实验结果
 
 | Input | Train Loss | Val Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
 |---|---:|---:|---:|---:|---:|---:|
 | RGB | 0.2956 | 94.28% | 65.27% | 95.49% | 65.75% | 34.56% |
-| Multispectral | 0.1781 | 97.22% | 69.21% | 97.69% | 64.17% | 45.76% |
+| Multispectral | 0.2166 | 94.38% | 67.76% | 94.94% | 61.62% | 46.73% |
 
-Multispectral 的 mean IoU 和 weed IoU 更高，初步表明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 略高，但整体 mean IoU 和 weed IoU 不如 multispectral。对作物、杂草、土壤/背景区分任务来说，weed 是关键难点，因此 multispectral 当前更值得继续深入。
+### 结果解释
 
-**对比局限：**RGB Dataset 有 454 个有效样本，multispectral Dataset 有 884 个有效样本，样本集合不完全一致，因此当前结果仍是初步对比，不能单独归因于输入通道。后续需要让 RGB 和 multispectral 使用同一批样本，再比较指标。
+1. Multispectral 的 mean IoU 为 67.76%，高于 RGB 的 65.27%，说明整体分割效果略好。
+2. Multispectral 的 weed IoU 为 46.73%，比 RGB 的 34.56% 高 12.17 个百分点，说明多光谱通道对杂草识别更有帮助。
+3. RGB 的 crop IoU 为 65.75%，比 Multispectral 的 61.62% 高 4.13 个百分点，说明 RGB 对作物行状结构也有一定优势。
+4. 对导师课题来说，weed 是关键难点，因此多光谱方向更值得继续深入。
 
-运行 `python build_common_sample_list.py` 可生成 `splits/real_weedmap_common_samples.csv`。列表只包含 RGB 与五通道 multispectral 输入、彩色标签及 mask 都齐全，且过滤空输入和无前景标签后的样本。构建这份共享样本列表，是为了让 RGB 和 multispectral 在完全相同的样本上使用相同训练/验证划分，公平比较输入通道带来的差异；现有对比结果尚未使用此列表。
+### 最佳轮次与训练波动
 
-为了严格比较 RGB 和 multispectral，需要让二者使用同一个 `sample_list_csv`（训练脚本参数 `--sample-list-csv`），避免样本数量不同导致比较不公平。
+Multispectral 在 Epoch 8 达到更好结果：mean IoU 为 70.38%，weed IoU 为 50.43%；Epoch 10 的 mean IoU 为 67.76%，weed IoU 为 46.73%。这说明训练后期存在波动，后续应该根据验证集 mean IoU 保存 best checkpoint，而不是只保存最后一轮模型。
 
 ## 下一步计划
 
-- 基于 RGB 和 multispectral 共享样本列表，在相同样本与数据划分上做严格公平对比；
-- 尝试 weed class weight = 12 或 16；
-- 继续做 20 epochs 和多 seed 实验。
+- 给 `train_real_weedmap_unet.py` 增加 best model checkpoint，根据验证集 mean IoU 保存最佳模型；
+- 继续比较 weed class weight = 12 和 16；
+- 做 20 epochs 和多 seed 重复实验。
