@@ -28,6 +28,16 @@ mask / annotation 是语义分割标签，用于表示每个像素所属的类�
 
 因此，后续训练建议优先从 `GroundTruth_color` 生成 `0/1/2` 训练 mask，或者将 iMap 重新映射为 `0=background, 1=crop, 2=weed`。逐样本及逐子集验证可运行 `python analyze_real_weedmap_labels.py`；生成的 CSV 位于 `outputs/real_weedmap_label_summary.csv`，不提交到 Git。
 
+## Dataset 读取规则
+
+- `tile/RGB` 用于 `rgb` 输入。
+- `tile/G`、`tile/R`、`tile/RE`、`tile/NIR`、`tile/NDVI` 用于 `multispectral` 输入，通道按此顺序堆叠。
+- `GroundTruth_color` 转换为 `0/1/2` 训练标签：black 为 background，green 为 crop，red 为 weed。
+- 有效区域文件中 `mask=255` 的无效/no-data 区域转为 `ignore_index=255`。
+- 数据中存在输入全黑或标签全为 `ignore_index` 的空样本。`WeedMapDataset` 默认使用 `filter_empty=True` 跳过这些样本，并要求至少 1000 个有效像素和 1 个 crop/weed 前景像素。
+- 后续训练不应使用 label 全为 `ignore_index` 的样本。
+- 后续训练使用 `CrossEntropyLoss` 时应设置 `ignore_index=255`。
+
 ## 当前 RedEdge_004 数据结构与统计
 
 当前本地子集位于 `data/weedmap/RedEdge_004/004`，包含以下目录：

@@ -33,6 +33,7 @@ cv-weedmap-segmentation/
 ├── analyze_real_weedmap_labels.py
 ├── visualize_sample_placeholder.py
 ├── visualize_real_weedmap_sample.py
+├── weedmap_dataset.py
 ├── synthetic_dataset.py
 ├── unet.py
 ├── losses.py
@@ -75,6 +76,16 @@ python visualize_real_weedmap_sample.py
 ```
 
 图片默认保存到 `outputs/real_weedmap_sample_frame0070.png`，终端同时打印该样本 GT_iMap 的 unique values 和 counts。可通过 `--data-root`、`--sample-id` 和 `--output` 指定其他数据目录、样本及输出路径。
+
+## 真实 WeedMap Dataset
+
+`WeedMapDataset` 从 `data/weedmap` 读取真实 WeedMap Tiles 数据，支持 RGB 和五通道多光谱输入，并将彩色真值转换为训练标签。运行内置检查：
+
+```bash
+python weedmap_dataset.py
+```
+
+脚本会分别测试 RGB 与 multispectral Dataset，并打印样本数以及首个样本的 image/label shape、dtype、数值范围、标签 unique values 和各类像素数。Dataset 默认使用 `filter_empty=True` 过滤全黑输入、全 ignore 标签、有效像素过少或没有 crop/weed 前景的空样本。缺少必要输入或标签的样本仍会自动跳过；初始化输出会分别说明 `skipped missing samples` 和 `skipped empty/invalid samples`，因部分子集缺少 RGB 而被跳过的样本也计入前者。
 
 ## 训练过程记录与曲线
 
