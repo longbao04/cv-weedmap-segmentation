@@ -14,7 +14,7 @@
 
 WeedMap 的 sugar beet field（甜菜田）场景与导师提出的水稻/柑橘实验田任务具有共同目标：从无人机影像中区分作物、杂草和土壤/背景。可以先学习数据读取、多光谱通道、植被指数、标签可视化和分割评估，再迁移到实验田。不同作物、种植布局、传感器和拍摄条件存在差异，迁移时需要检查当地数据与标注，不能假设模型直接通用。
 
-项目已进入 synthetic U-Net 的 RGB 输入 vs 多光谱输入对比阶段，在真实 WeedMap 数据之前用模拟数据跑通分割流程。项目不包含或下载真实数据，不训练真实 WeedMap。数据理解摘要见 `dataset_notes.md`，后续安排见 `project_plan.md`，实验记录见 `synthetic_experiment_notes.md`。
+项目已用模拟数据跑通 U-Net 分割流程，并提供使用本地真实 WeedMap 数据训练的脚本。项目不包含或下载真实数据。数据理解摘要见 `dataset_notes.md`，后续安排见 `project_plan.md`，实验记录见 `synthetic_experiment_notes.md` 和 `real_experiment_notes.md`。
 
 ## 实验报告
 
@@ -28,6 +28,7 @@ cv-weedmap-segmentation/
 ├── project_plan.md
 ├── dataset_notes.md
 ├── synthetic_experiment_notes.md
+├── real_experiment_notes.md
 ├── synthetic_segmentation_report.md
 ├── inspect_dataset_structure.py
 ├── analyze_real_weedmap_labels.py
@@ -39,6 +40,7 @@ cv-weedmap-segmentation/
 ├── losses.py
 ├── metrics.py
 ├── train_synthetic_unet.py
+├── train_real_weedmap_unet.py
 ├── plot_synthetic_history.py
 ├── visualize_synthetic_prediction.py
 ├── requirements.txt
@@ -86,6 +88,18 @@ python weedmap_dataset.py
 ```
 
 脚本会分别测试 RGB 与 multispectral Dataset，并打印样本数以及首个样本的 image/label shape、dtype、数值范围、标签 unique values 和各类像素数。Dataset 默认使用 `filter_empty=True` 过滤全黑输入、全 ignore 标签、有效像素过少或没有 crop/weed 前景的空样本。缺少必要输入或标签的样本仍会自动跳过；初始化输出会分别说明 `skipped missing samples` 和 `skipped empty/invalid samples`，因部分子集缺少 RGB 而被跳过的样本也计入前者。
+
+## 训练真实 WeedMap U-Net
+
+使用本地真实 WeedMap 数据、现有 `WeedMapDataset` 和 `SmallUNet` 训练三分类模型：
+
+```bash
+python train_real_weedmap_unet.py --input-type multispectral --loss weighted_ce --epochs 3
+```
+
+默认读取 `data/weedmap`，按固定随机种子划分 80% 训练集和 20% 验证集。多光谱输入使用 G、R、RedEdge、NIR、NDVI 五个通道；RGB 输入使用三个通道。标签 255 作为 `ignore_index`，不参与 loss 或验证指标，也不会被当作第 4 类。默认 weighted CE 权重为 background=1.0、crop=4.0、weed=8.0。
+
+每个 epoch 输出 train loss、验证集 pixel accuracy、mean IoU 和三类 IoU。默认模型保存到 `models/real_weedmap_<input_type>_<loss>.pth`，可用 `--save-path` 修改；history 保存到 `outputs/real_weedmap_history_<input_type>_<loss>.csv`。`models/` 和 `outputs/` 会自动创建且已被 Git 忽略。可用 `--data-root`、`--batch-size`、`--lr`、`--seed` 和 `--num-workers` 调整训练参数。
 
 ## 训练过程记录与曲线
 
@@ -211,4 +225,4 @@ python plot_synthetic_history.py --loss weighted_ce --input-type multispectral
 
 所有实验按 `synthetic_unet_<input_type>_<loss>.pth` 和 `synthetic_history_<input_type>_<loss>.csv` 保存。预测图为 `outputs/synthetic_prediction_<input_type>_<loss>.png`，曲线图为 `outputs/synthetic_history_<input_type>_<loss>.png`。同一组合重新训练会覆盖其模型和 CSV。此前仅包含 loss 的旧文件不会自动迁移或加载；缺少对应模型或 CSV 时，脚本会提示包含输入类型的训练命令。
 
-多光谱预测可视化将 Red/Green/NIR 映射到显示用的 R/G/B，形成近似 RGB 合成图；由于 NIR 替代蓝光，它不是真彩色照片。仍显示 true mask、predicted mask 和 error map。模拟反射率不是实测光谱，实验结果只能用于比较当前模拟条件，不能证明真实田间的多光谱优势。本阶段不联网、不下载真实 WeedMap 数据、不训练真实数据，结果记录在 `synthetic_experiment_notes.md`。
+多光谱预测可视化将 Red/Green/NIR 映射到显示用的 R/G/B，形成近似 RGB 合成图；由于 NIR 替代蓝光，它不是真彩色照片。仍显示 true mask、predicted mask 和 error map。模拟反射率不是实测光谱，实验结果只能用于比较当前模拟条件，不能证明真实田间的多光谱优势。上述 synthetic 实验不联网、不下载或训练真实 WeedMap 数据，结果记录在 `synthetic_experiment_notes.md`。
