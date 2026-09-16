@@ -155,8 +155,43 @@ Multispectral 在 Epoch 8 达到更好结果：mean IoU 为 70.38%，weed IoU �
 
 best checkpoint 在验证集整体指标和单张预测可视化指标上都优于最后一轮模型，因此后续真实 WeedMap 实验应保存并使用 best checkpoint。
 
+## Weed class weight 调参实验
+
+### 实验设置
+
+- `sample_list_csv=splits/real_weedmap_common_samples.csv`
+- `input_type=multispectral`
+- RGB 和 multispectral 公平对比后，继续在 multispectral 上调参
+- `loss=weighted_ce`
+- `epochs=10`
+- `batch_size=2`
+- train samples：`363`
+- val samples：`91`
+- background weight：`1.0`
+- crop weight：`4.0`
+- weed weight：`8`、`12`、`16`
+- `ignore_index=255`
+- 使用 best checkpoint，根据 val mean IoU 保存最佳模型
+
+### 实验结果
+
+| Weed Weight | Best Epoch | Best Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---:|---:|---:|---:|---:|---:|
+| 8 | 8 | 70.38% | 96.09% | 64.61% | 50.43% |
+| 12 | 8 | 69.64% | 95.25% | 64.63% | 49.04% |
+| 16 | 8 | 67.98% | 94.72% | 62.88% | 46.36% |
+
+### 结果解释
+
+1. `weed weight=8` 当前效果最好，best mean IoU 和 weed IoU 都最高。
+2. `weed weight=12` 与 8 接近，但两项指标略低。
+3. `weed weight=16` 时，mean IoU 和 weed IoU 均下降。
+4. weed 权重不是越大越好；过大的 weed 权重可能破坏 background、crop、weed 三类之间的平衡。
+5. 当前后续实验可以继续以 `background=1.0`、`crop=4.0`、`weed=8.0` 作为默认 weighted CE 设置。
+6. 后续若继续调参，可以尝试更细粒度的 `weed weight=10`，或者改用 Focal Loss / Dice + CE。
+
 ## 下一步计划
 
-- 后续将通过调整 weed class weight，例如 8、12、16，观察 weed IoU 是否进一步提升。
-- 继续比较 weed class weight = 12 和 16；
-- 做 20 epochs 和多 seed 重复实验。
+- 尝试 20 epochs，并使用 best checkpoint；
+- 尝试 Focal Loss 或 CE + Dice 组合；
+- 做多 seed 重复实验，验证当前结论是否稳定。
