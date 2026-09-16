@@ -1,4 +1,4 @@
-"""适用于 128×128 RGB 图像的小型 U-Net。"""
+"""适用于 128×128 RGB 或多光谱图像的小型 U-Net。"""
 
 import torch
 from torch import nn
@@ -18,6 +18,7 @@ class SmallUNet(nn.Module):
     def __init__(self, in_channels=3, num_classes=3):
         super().__init__()
         # Encoder：降低分辨率、增加通道，学习更大范围的图像信息。
+        # RGB 输入为 3 通道，多光谱输入为 6 通道；输出仍为三个类别。
         self.enc1 = double_conv(in_channels, 16)
         self.enc2 = double_conv(16, 32)
         self.pool = nn.MaxPool2d(2)

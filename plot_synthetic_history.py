@@ -12,6 +12,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--loss", choices=("ce", "weighted_ce", "dice", "focal"),
                         default="ce", help="读取对应损失的训练记录，默认 ce")
+    parser.add_argument("--input-type", choices=("rgb", "multispectral"), default="rgb",
+                        help="读取对应输入类型的训练记录，默认 rgb")
     parser.add_argument("--use-class-weights", action="store_true",
                         help="读取使用类别权重训练的 history")
     args = parser.parse_args()
@@ -19,9 +21,9 @@ def main():
     mode = "weighted_ce" if args.use_class_weights else args.loss
     # 相对于脚本定位文件，从其他目录运行时也能找到项目 outputs。
     output_dir = Path(__file__).resolve().parent / "outputs"
-    history_path = output_dir / f"synthetic_history_{mode}.csv"
+    history_path = output_dir / f"synthetic_history_{args.input_type}_{mode}.csv"
     if not history_path.is_file():
-        train_command = f"python train_synthetic_unet.py --epochs 10 --loss {mode}"
+        train_command = f"python train_synthetic_unet.py --epochs 10 --loss {mode} --input-type {args.input_type}"
         print(f"CSV 文件不存在：{history_path}\n请先运行：{train_command}")
         return
 
@@ -44,7 +46,7 @@ def main():
 
     epochs = [row["epoch"] for row in rows]
     fig, axes = plt.subplots(2, 3, figsize=(15, 8))
-    fig.suptitle(f"Synthetic U-Net training history ({mode})")
+    fig.suptitle(f"Synthetic U-Net training history ({args.input_type}, {mode})")
     # 六个指标各占一个子图，避免 loss 与 IoU 的数值范围互相影响。
     for ax, metric in zip(axes.flat, metrics):
         values = [row[metric] for row in rows]
@@ -60,7 +62,7 @@ def main():
         ax.grid(True, alpha=0.3)
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     # 同时保存图片，便于整理实验记录或在无图形界面环境中查看。
-    figure_path = output_dir / f"synthetic_history_{mode}.png"
+    figure_path = output_dir / f"synthetic_history_{args.input_type}_{mode}.png"
     fig.savefig(figure_path, dpi=150)
     print(f"训练曲线已保存到 {figure_path}")
     plt.show()

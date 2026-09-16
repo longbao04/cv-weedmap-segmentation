@@ -1,6 +1,6 @@
 # Synthetic segmentation 实验记录
 
-本阶段仅使用模拟数据，未下载或训练真实 WeedMap 数据。保持 U-Net 主体结构不变，当前进入 CrossEntropyLoss、Weighted CrossEntropyLoss、Dice Loss 和 Focal Loss 对比阶段。
+本阶段仅使用模拟数据，未下载或训练真实 WeedMap 数据。保持 U-Net 主体结构不变，已记录四种 loss 的对比结果，当前进入 RGB 输入 vs 多光谱输入对比阶段。
 
 ## 训练曲线分析
 
@@ -146,3 +146,37 @@ python visualize_synthetic_prediction.py --use-class-weights
 5. 不同 loss 的 loss 数值不能直接比较大小，因为计算公式不同；应主要比较 pixel accuracy、mean IoU 和 per-class IoU，不能根据 average train loss 的大小判断哪种 loss 的分割效果更好。
 6. 在当前 synthetic crop/weed/background 分割实验中，weighted_ce 是本次比较的四种 loss 中最有效的少数类 weed 改进方法。
 7. 真实农业遥感任务中，也应该重点关注 weed IoU 和 mean IoU，而不是只看 pixel accuracy，以判断模型是否有效识别少数类杂草。
+
+
+## RGB 输入 vs 多光谱输入实验
+
+实验目的：比较 RGB 输入和 Green/Red/RedEdge/NIR/NDVI/NDRE 多光谱输入对 weed IoU、mean IoU 的影响，探索利用作物、杂草、土壤的光谱差异进行分割。
+
+输入分别为 3 通道 RGB 和 6 通道模拟多光谱。多光谱中的 NDVI、NDRE 由 NIR/Red/RedEdge 按归一化差值公式计算。相同种子下两种输入共享 mask 和 Green/Red 波段，额外模拟红边、近红外反射率；多光谱输入比 RGB 包含更多植被光谱信息，但这些反射率不是实测数据。
+
+对比时保持 weighted_ce（background=1.0、crop=2.0、weed=6.0）、epochs=10、batch-size=16、lr=0.001、训练 seed=42、测试 seed=2026 和评估方式一致，仅调整输入及 U-Net 第一层输入通道数。RGB 已有结果引用此前记录，多光谱结果根据已提供的实验指标补充，本次未重新训练。multispectral 的 average train loss 为 0.0360。
+
+| input type | loss | epochs | pixel accuracy | mean IoU | background IoU | crop IoU | weed IoU | 观察 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| rgb | weighted_ce | 10 | 98.85% | 94.99% | 98.79% | 96.98% | 89.19% | weed IoU 仍低于 background/crop IoU，但高于 multispectral | 作为输入对比的参考基线，本次 weed IoU 高于多光谱输入 |
+| multispectral | weighted_ce | 10 | 98.97% | 94.97% | 98.95% | 97.90% | 88.07% | pixel accuracy、background IoU 和 crop IoU 略高于 RGB，mean IoU 基本持平，weed IoU 下降 | 当前 synthetic 数据设置下，多光谱输入没有明显提升 weed 类别分割效果 |
+
+```bash
+python train_synthetic_unet.py --epochs 10 --loss weighted_ce --input-type rgb
+python train_synthetic_unet.py --epochs 10 --loss weighted_ce --input-type multispectral
+python visualize_synthetic_prediction.py --loss weighted_ce --input-type multispectral
+python plot_synthetic_history.py --loss weighted_ce --input-type multispectral
+```
+
+新模型与 history CSV 按 input type 和 loss 命名，旧文件不自动迁移。以上命令保留为实验复现参考，本次仅更新已提供的结果，未执行训练、联网或下载文件。后续可结合预测错误图与曲线判断收益和稳定性。
+
+### 观察与结论
+
+1. multispectral 输入的 pixel accuracy 为 98.97%，略高于 RGB 的 98.85%。
+2. multispectral 的 background IoU（98.95%）和 crop IoU（97.90%）略高于 RGB 的 98.79% 和 96.98%。
+3. mean IoU 基本持平，RGB 为 94.99%，multispectral 为 94.97%。
+4. weed IoU 从 RGB 的 89.19% 下降到 multispectral 的 88.07%，下降了 1.12 个百分点。
+5. 在当前 synthetic 数据设置下，多光谱输入没有明显提升 weed 类别分割效果。
+6. 这不能说明多光谱无效，因为当前数据是模拟数据，RGB 已经包含较明显的类别差异。
+7. 在真实无人机多光谱数据中，NIR、RedEdge、NDVI、NDRE 仍可能对区分作物、杂草和土壤有重要价值。
+8. 更严谨的实验需要多 seed 重复运行，并在真实 WeedMap 数据上验证。

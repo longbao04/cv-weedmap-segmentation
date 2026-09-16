@@ -13,13 +13,13 @@ from metrics import CLASS_NAMES, confusion_matrix, mean_iou, per_class_iou, pixe
 from synthetic_dataset import SyntheticWeedDataset
 from unet import SmallUNet
 
-MODEL_PATH = Path(__file__).resolve().parent / "models" / "synthetic_unet_ce.pth"
+MODEL_PATH = Path(__file__).resolve().parent / "models" / "synthetic_unet_rgb_ce.pth"
 LOSS_CHOICES = ("ce", "weighted_ce", "dice", "focal")
 
 
-def get_model_path(loss):
-    # 每种损失单独保存模型，便于比较实验。
-    return MODEL_PATH.with_name(f"synthetic_unet_{loss}.pth")
+def get_model_path(loss, input_type="rgb"):
+    # 每种输入类型和损失单独保存模型，便于比较实验。
+    return MODEL_PATH.with_name(f"synthetic_unet_{input_type}_{loss}.pth")
 
 
 def select_device():
@@ -34,6 +34,8 @@ def main():
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--loss", choices=LOSS_CHOICES, default="ce",
                         help="损失函数，默认 ce")
+    parser.add_argument("--input-type", choices=("rgb", "multispectral"), default="rgb",
+                        help="输入类型：RGB 三通道或模拟多光谱六通道，默认 rgb")
     parser.add_argument("--use-class-weights", action="store_true",
                         help="使用类别权重：background=1.0、crop=2.0、weed=6.0")
     args = parser.parse_args()
@@ -43,11 +45,13 @@ def main():
     torch.manual_seed(42)
     device = select_device()
     # 独立随机种子使训练与测试样本不同；测试集只用于评估。
-    train_loader = DataLoader(SyntheticWeedDataset(256, seed=42),
+    train_loader = DataLoader(SyntheticWeedDataset(256, seed=42, input_type=args.input_type),
                               batch_size=args.batch_size, shuffle=True)
-    test_loader = DataLoader(SyntheticWeedDataset(64, seed=2026),
+    test_loader = DataLoader(SyntheticWeedDataset(64, seed=2026, input_type=args.input_type),
                              batch_size=args.batch_size)
-    model = SmallUNet().to(device)
+    # 根据输入类型调整第一层通道数，其他网络结构和输出类别保持一致。
+    in_channels = 3 if args.input_type == "rgb" else 6
+    model = SmallUNet(in_channels=in_channels).to(device)
     # 旧开关优先，等价于 --loss weighted_ce，保持已有命令兼容。
     loss_name = "weighted_ce" if args.use_class_weights else args.loss
     if loss_name == "weighted_ce":
@@ -60,17 +64,18 @@ def main():
         criterion = FocalLoss(num_classes=3, ignore_index=None)
     else:
         criterion = nn.CrossEntropyLoss()
-    model_path = get_model_path(loss_name)
+    model_path = get_model_path(loss_name, args.input_type)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    # 四种损失分别保存；重新训练同一种损失时覆盖旧记录。
+    # 按输入类型和损失分别保存；相同组合重新训练时覆盖旧记录。
     output_dir = MODEL_PATH.parent.parent / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
-    history_path = output_dir / f"synthetic_history_{loss_name}.csv"
+    history_path = output_dir / f"synthetic_history_{args.input_type}_{loss_name}.csv"
     fieldnames = ["epoch", "average_train_loss", "pixel_accuracy", "mean_iou",
                   "background_iou", "crop_iou", "weed_iou"]
     with history_path.open("w", newline="", encoding="utf-8") as history_file:
         csv.DictWriter(history_file, fieldnames=fieldnames).writeheader()
     print(f"Device: {device}; train samples: 256; test samples: 64")
+    print(f"当前 input_type：{args.input_type}；输入通道数：{in_channels}")
     print(f"当前 loss 类型：{loss_name}")
     print(f"是否使用 class weights：{'是（background=1.0、crop=2.0、weed=6.0）' if loss_name == 'weighted_ce' else '否'}")
 

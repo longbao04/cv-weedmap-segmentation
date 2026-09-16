@@ -14,7 +14,7 @@
 
 WeedMap 的 sugar beet field（甜菜田）场景与导师提出的水稻/柑橘实验田任务具有共同目标：从无人机影像中区分作物、杂草和土壤/背景。可以先学习数据读取、多光谱通道、植被指数、标签可视化和分割评估，再迁移到实验田。不同作物、种植布局、传感器和拍摄条件存在差异，迁移时需要检查当地数据与标注，不能假设模型直接通用。
 
-项目已进入 synthetic U-Net 的 Loss Function 对比阶段，在真实 WeedMap 数据之前用模拟数据跑通分割流程。项目不包含或下载真实数据，不训练真实 WeedMap。数据理解摘要见 `dataset_notes.md`，后续安排见 `project_plan.md`，实验记录见 `synthetic_experiment_notes.md`。
+项目已进入 synthetic U-Net 的 RGB 输入 vs 多光谱输入对比阶段，在真实 WeedMap 数据之前用模拟数据跑通分割流程。项目不包含或下载真实数据，不训练真实 WeedMap。数据理解摘要见 `dataset_notes.md`，后续安排见 `project_plan.md`，实验记录见 `synthetic_experiment_notes.md`。
 
 ## 项目结构
 
@@ -60,7 +60,7 @@ python train_synthetic_unet.py --epochs 5
 python train_synthetic_unet.py --epochs 5 --use-class-weights
 ```
 
-普通训练保存到 `outputs/synthetic_history_ce.csv`，加权训练保存到 `outputs/synthetic_history_weighted_ce.csv`。记录包含 epoch、average_train_loss、pixel_accuracy、mean_iou、background_iou、crop_iou 和 weed_iou；accuracy 与 IoU 使用 0～1 的数值。同一种模式重新训练会覆盖对应 history，模型也按 loss 名称分别保存。
+普通训练保存到 `outputs/synthetic_history_rgb_ce.csv`，加权训练保存到 `outputs/synthetic_history_rgb_weighted_ce.csv`。记录包含 epoch、average_train_loss、pixel_accuracy、mean_iou、background_iou、crop_iou 和 weed_iou；accuracy 与 IoU 使用 0～1 的数值。同一种模式重新训练会覆盖对应 history，模型也按 loss 名称分别保存。
 
 训练后绘制对应曲线：
 
@@ -69,7 +69,7 @@ python plot_synthetic_history.py
 python plot_synthetic_history.py --use-class-weights
 ```
 
-脚本显示六个指标的子图，并分别保存到 `outputs/synthetic_history_ce.png` 或 `outputs/synthetic_history_weighted_ce.png`。CSV 不存在时会提示对应训练命令。训练曲线帮助观察 loss 是否下降、mIoU 是否提升，尤其是 weed IoU 随 epoch 的变化，便于比较普通与加权训练的效果。
+脚本显示六个指标的子图，并分别保存到 `outputs/synthetic_history_rgb_ce.png` 或 `outputs/synthetic_history_rgb_weighted_ce.png`。CSV 不存在时会提示对应训练命令。训练曲线帮助观察 loss 是否下降、mIoU 是否提升，尤其是 weed IoU 随 epoch 的变化，便于比较普通与加权训练的效果。
 
 ## Synthetic segmentation baseline
 
@@ -84,7 +84,7 @@ python train_synthetic_unet.py --epochs 5
 python visualize_synthetic_prediction.py
 ```
 
-训练参数还包括 `--batch-size`（默认 16）与 `--lr`（默认 0.001）。程序自动选择 MPS 或 CPU，使用 256 张训练图像和 64 张独立种子的测试图像，每个 epoch 输出平均训练 loss 和整份测试集的指标。权重保存为 `models/synthetic_unet_ce.pth`。
+训练参数还包括 `--batch-size`（默认 16）与 `--lr`（默认 0.001）。程序自动选择 MPS 或 CPU，使用 256 张训练图像和 64 张独立种子的测试图像，每个 epoch 输出平均训练 loss 和整份测试集的指标。权重保存为 `models/synthetic_unet_rgb_ce.pth`。
 
 默认不使用 class weights。加入 `--use-class-weights` 后使用 weighted CrossEntropyLoss，类别权重为 background=1.0、crop=2.0、weed=6.0。对少数类 weed 给予更高错误惩罚，缓解类别不平衡：
 
@@ -93,11 +93,11 @@ python train_synthetic_unet.py --epochs 5 --use-class-weights
 python visualize_synthetic_prediction.py --use-class-weights
 ```
 
-加权模型保存为 `models/synthetic_unet_weighted_ce.pth`，可视化通过同一开关加载对应模型；模型文件不存在时会提示文件路径和训练命令。普通与加权模型的可视化均保存到 `outputs/synthetic_prediction.png`，比较时请分别保留图片，避免覆盖。
+加权模型保存为 `models/synthetic_unet_rgb_weighted_ce.pth`，可视化通过同一开关加载对应模型；模型文件不存在时会提示文件路径和训练命令。普通与加权模型的可视化分别保存到 `outputs/synthetic_prediction_rgb_<loss>.png`。
 
 pixel accuracy 是像素级准确率，即预测正确像素占总像素的比例。IoU 是语义分割常用指标，表示某类别预测区域与真实区域的交集除以并集；mIoU 是所有类别 IoU 的平均值。若某类在预测和真值中均不存在，该类 IoU 记为 NaN，不参与平均；背景占比高时应结合 crop、weed IoU 判断效果。
 
-可视化使用三个新的模拟样本，显示 RGB image、true mask、predicted mask 和 error map（红色表示错误），并保存到 `outputs/synthetic_prediction.png`。模拟数据只用于理解 image → mask → 模型 → 指标 → 可视化流程，指标不能代表真实农田表现。
+可视化使用三个新的模拟样本，显示 RGB image、true mask、predicted mask 和 error map（红色表示错误），并保存到 `outputs/synthetic_prediction_rgb_<loss>.png`。模拟数据只用于理解 image → mask → 模型 → 指标 → 可视化流程，指标不能代表真实农田表现。
 
 ## Loss Function 对比实验
 
@@ -119,18 +119,18 @@ python train_synthetic_unet.py --epochs 10 --loss dice
 python train_synthetic_unet.py --epochs 10 --loss focal
 ```
 
-模型和历史记录分别保存如下；重新训练同一种 loss 会覆盖其模型和 CSV：
+模型和历史记录分别保存如下；重新训练同一种 input type + loss 组合会覆盖其模型和 CSV：
 
 | loss | 模型 | 训练历史 CSV |
 | --- | --- | --- |
-| ce | `models/synthetic_unet_ce.pth` | `outputs/synthetic_history_ce.csv` |
-| weighted_ce | `models/synthetic_unet_weighted_ce.pth` | `outputs/synthetic_history_weighted_ce.csv` |
-| dice | `models/synthetic_unet_dice.pth` | `outputs/synthetic_history_dice.csv` |
-| focal | `models/synthetic_unet_focal.pth` | `outputs/synthetic_history_focal.csv` |
+| ce | `models/synthetic_unet_rgb_ce.pth` | `outputs/synthetic_history_rgb_ce.csv` |
+| weighted_ce | `models/synthetic_unet_rgb_weighted_ce.pth` | `outputs/synthetic_history_rgb_weighted_ce.csv` |
+| dice | `models/synthetic_unet_rgb_dice.pth` | `outputs/synthetic_history_rgb_dice.csv` |
+| focal | `models/synthetic_unet_rgb_focal.pth` | `outputs/synthetic_history_rgb_focal.csv` |
 
 每个 epoch 继续打印 average train loss、pixel accuracy、mean IoU、background IoU、crop IoU 和 weed IoU。不同损失的数值尺度不同，应通过相同评估指标比较效果，不直接比较 loss 大小。
 
-画曲线命令（图片保存为 `outputs/synthetic_history_<loss>.png`）：
+画曲线命令（图片保存为 `outputs/synthetic_history_rgb_<loss>.png`）：
 
 ```bash
 python plot_synthetic_history.py --loss dice
@@ -144,6 +144,35 @@ python visualize_synthetic_prediction.py --loss dice
 python visualize_synthetic_prediction.py --loss focal
 ```
 
-可视化仍保存到 `outputs/synthetic_prediction.png`，比较时请分别保留图片。模型或 CSV 不存在时，脚本会提示对应文件路径和训练命令。
+可视化按输入类型与 loss 保存图片，避免不同实验互相覆盖。模型或 CSV 不存在时，脚本会提示对应文件路径和训练命令。
 
 三个脚本均保留 `--use-class-weights` 兼容旧命令，推荐使用 `--loss weighted_ce` 作为新方式；如果同时传入两种参数，旧开关优先，最终使用 `weighted_ce`。原先的 `synthetic_unet.pth` / `synthetic_unet_weighted.pth` 和 `synthetic_history_baseline.csv` / `synthetic_history_weighted.csv` 不会自动加载或迁移，新实验使用上表中的文件名；已有实验指标继续保留在实验记录中。
+
+
+## RGB 输入 vs 多光谱输入实验
+
+导师课题强调利用作物、杂草、土壤的光谱差异进行区分。本阶段通过 `--input-type rgb/multispectral` 比较输入形式，默认 `rgb`，继续支持 `--loss ce/weighted_ce/dice/focal` 和旧开关 `--use-class-weights`。目标是从 RGB 输入过渡到更接近无人机多光谱影像的输入形式。
+
+- RGB：输入为 `[3,128,128]`，依次为 Red、Green、Blue，范围为 0～1。
+- 多光谱：输入为 `[6,128,128]`，依次为 Green、Red、RedEdge、NIR、NDVI、NDRE。前四个通道范围为 0～1，两个指数保留约 -1～1 的原始范围。
+- `NDVI = (NIR - Red) / (NIR + Red + eps)`，`NDRE = (NIR - RedEdge) / (NIR + RedEdge + eps)`，`eps=1e-6` 防止除零。
+
+多光谱输入比 RGB 包含更多植被光谱信息。Green、Red 与同种子的 RGB 样本共享，RedEdge、NIR 使用类别相关的模拟反射率并添加光照变化和噪声，两个指数由生成的波段计算。相同 seed/index 下两种输入的 mask 一致，仍为 0=background、1=crop、2=weed。U-Net 输入通道分别为 3 和 6，输出始终为三个类别。
+
+保持 epochs=10、batch-size=16、lr=0.001、数据种子和评估方式一致，先以 weighted_ce 比较 weed IoU 和 mean IoU：
+
+```bash
+python train_synthetic_unet.py --epochs 10 --loss weighted_ce --input-type rgb
+python train_synthetic_unet.py --epochs 10 --loss weighted_ce --input-type multispectral
+python visualize_synthetic_prediction.py --loss weighted_ce --input-type multispectral
+python plot_synthetic_history.py --loss weighted_ce --input-type multispectral
+```
+
+| 输入 | 模型 | 训练历史 CSV |
+| --- | --- | --- |
+| rgb | `models/synthetic_unet_rgb_weighted_ce.pth` | `outputs/synthetic_history_rgb_weighted_ce.csv` |
+| multispectral | `models/synthetic_unet_multispectral_weighted_ce.pth` | `outputs/synthetic_history_multispectral_weighted_ce.csv` |
+
+所有实验按 `synthetic_unet_<input_type>_<loss>.pth` 和 `synthetic_history_<input_type>_<loss>.csv` 保存。预测图为 `outputs/synthetic_prediction_<input_type>_<loss>.png`，曲线图为 `outputs/synthetic_history_<input_type>_<loss>.png`。同一组合重新训练会覆盖其模型和 CSV。此前仅包含 loss 的旧文件不会自动迁移或加载；缺少对应模型或 CSV 时，脚本会提示包含输入类型的训练命令。
+
+多光谱预测可视化将 Red/Green/NIR 映射到显示用的 R/G/B，形成近似 RGB 合成图；由于 NIR 替代蓝光，它不是真彩色照片。仍显示 true mask、predicted mask 和 error map。模拟反射率不是实测光谱，实验结果只能用于比较当前模拟条件，不能证明真实田间的多光谱优势。本阶段不联网、不下载真实 WeedMap 数据、不训练真实数据，结果记录在 `synthetic_experiment_notes.md`。

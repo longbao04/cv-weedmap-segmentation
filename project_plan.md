@@ -1,12 +1,14 @@
 # 项目计划
 
-**当前阶段：synthetic U-Net 的 Loss Function 对比。** Weighted CrossEntropyLoss 已显著改善 weed 识别，已有 10 epochs 结果为 weed IoU=89.19%、mean IoU=94.99%。接下来比较 CrossEntropyLoss、Weighted CrossEntropyLoss、Dice Loss 和 Focal Loss，重点检查少数类 weed IoU，并结合 mean IoU 和 background/crop IoU 评估整体效果。
+**当前阶段：synthetic U-Net 的 RGB 输入 vs 多光谱输入对比。** 已完成四种 loss 的结果记录，RGB + weighted_ce + 10 epochs 的已有结果为 weed IoU=89.19%、mean IoU=94.99%。现在固定 weighted_ce，比较 RGB 与 Green/Red/RedEdge/NIR/NDVI/NDRE 六通道输入，重点关注 weed IoU、mean IoU 和 crop/weed 混淆。
 
-使用 `--loss ce`、`--loss weighted_ce`、`--loss dice`、`--loss focal` 选择实验。Weighted CrossEntropyLoss 的权重为 background=1.0、crop=2.0、weed=6.0，旧参数 `--use-class-weights` 继续等价于 `--loss weighted_ce`。比较时保持模拟数据种子、epochs（先统一为 10）、batch-size 和 lr 一致。
+目标是从 RGB 输入过渡到更接近无人机多光谱影像的输入形式，学习利用作物、杂草、土壤的光谱差异进行区分。红边和近红外使用模拟反射率，NDVI、NDRE 从波段计算；相同种子下两种输入共享 mask 和 Green/Red 波段。仅调整 U-Net 的输入通道数（3 或 6），输出仍为 background/crop/weed 三类。
 
-每个 epoch 保存平均训练 loss、pixel accuracy、mean IoU 和 background/crop/weed IoU。各损失的模型和 history CSV 按 loss 名称分别保存，通过 `plot_synthetic_history.py --loss <loss>` 和 `visualize_synthetic_prediction.py --loss <loss>` 查看对应实验。结果填写到 `synthetic_experiment_notes.md`；ce、dice、focal 的 10 epochs 结果等待运行后补充。
+使用 `--input-type rgb` 或 `--input-type multispectral` 选择输入，保留 `--loss ce/weighted_ce/dice/focal` 和兼容参数 `--use-class-weights`。第一组对比固定 epochs=10、batch-size=16、lr=0.001、数据种子及评估方式，weighted_ce 权重为 background=1.0、crop=2.0、weed=6.0。
 
-本阶段不联网，不下载真实 WeedMap 数据，不训练真实数据，不修改 U-Net 主体结构。模拟数据用于学习和比较流程，不能替代真实数据验证。
+每个 epoch 保存平均训练 loss、pixel accuracy、mean IoU 和各类 IoU。模型和 history CSV 按 input type + loss 分别保存，通过 `plot_synthetic_history.py --loss weighted_ce --input-type multispectral` 和 `visualize_synthetic_prediction.py --loss weighted_ce --input-type multispectral` 查看多光谱结果。`synthetic_experiment_notes.md` 已填写 RGB 参考结果，多光谱结果等待运行后补充。
+
+本阶段不联网，不下载真实 WeedMap 数据，不训练真实数据，不修改 loss function 主体实现。模拟结果用于学习和比较流程，不能替代真实数据验证。
 
 以下是真实数据阶段的后续学习路线；synthetic baseline 是进入这些阶段前的练习，不能替代真实数据验证。
 
