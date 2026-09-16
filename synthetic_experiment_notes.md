@@ -128,7 +128,7 @@ python visualize_synthetic_prediction.py --use-class-weights
 
 保持模拟数据种子、batch-size、lr 和 epochs 一致，先统一运行 10 epochs。除损失函数外，保持 U-Net 主体结构和评估方式不变。不同 loss 的数值尺度不同，主要用 weed IoU、mean IoU 和各类 IoU 比较效果。
 
-| loss | epochs | average train loss | pixel accuracy | mean IoU | background IoU | crop IoU | weed IoU | 观察 | 结论 |
+| 损失函数 | 训练轮数 | 平均训练损失 | 像素准确率 | 平均 IoU | 背景 IoU | 作物 IoU | 杂草 IoU | 观察 | 结论 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ce | 10 | 0.0527 | 98.04% | 89.71% | 98.66% | 94.34% | 76.14% | weed IoU 比 5 epochs baseline 的 0.26% 明显提升 | 增加训练轮数本身也有帮助，但 weed IoU 仍低于 focal 和 weighted_ce |
 | weighted_ce | 10 | 0.0501 | 98.85% | 94.99% | 98.79% | 96.98% | 89.19% | pixel accuracy、mean IoU 和各类 IoU 均为本组最高；后 5 个 epoch 的 weed IoU 均超过 82% | 整体效果最好，是本组实验中最有效的少数类 weed 改进方法 |
@@ -139,12 +139,12 @@ python visualize_synthetic_prediction.py --use-class-weights
 
 ### 观察与结论
 
-1. weighted_ce 的整体效果最好，mean IoU 为 94.99%，weed IoU 为 89.19%，两项指标均为本组实验最高。
+1. weighted_ce 的整体效果最好，pixel accuracy 为 98.85%，mean IoU 为 94.99%，weed IoU 为 89.19%，三项指标均为本组实验最高。相比 ce，分别提高了 0.81、5.28 和 13.05 个百分点，其中杂草 IoU 的提升最明显。
 2. focal loss 的 weed IoU 为 81.30%，明显高于普通 ce 的 76.14%，提高了 5.16 个百分点，说明 focal loss 对难分类样本和少数类有帮助。
-3. dice loss 的 weed IoU 为 66.27%，在本实验中低于 ce、focal 和 weighted_ce。
+3. dice loss 的 pixel accuracy 为 97.23%，mean IoU 为 85.51%，weed IoU 为 66.27%，三项指标均为本组最低。相比 ce，mean IoU 和 weed IoU 分别下降了 4.20 和 9.87 个百分点。
 4. 普通 ce 在训练 10 epochs 后 weed IoU 达到 76.14%，比 5 epochs baseline 的 0.26% 明显更好，说明增加训练轮数本身也有帮助。
 5. 不同 loss 的 loss 数值不能直接比较大小，因为计算公式不同；应主要比较 pixel accuracy、mean IoU 和 per-class IoU，不能根据 average train loss 的大小判断哪种 loss 的分割效果更好。
-6. 在当前 synthetic crop/weed/background 分割实验中，weighted_ce 是本次比较的四种 loss 中最有效的少数类 weed 改进方法。
+6. 按 mean IoU 和 weed IoU 排序，结果均为 weighted_ce > focal > ce > dice。focal 的像素准确率（98.00%）略低于 ce（98.04%），但平均 IoU 和杂草 IoU 更高，说明只看像素准确率可能遗漏少数类分割的改善。在当前模拟数据实验中，优先采用 weighted_ce 作为后续实验的损失函数。
 7. 真实农业遥感任务中，也应该重点关注 weed IoU 和 mean IoU，而不是只看 pixel accuracy，以判断模型是否有效识别少数类杂草。
 
 
