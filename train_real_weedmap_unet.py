@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch import nn
+from torch.nn import functional as F
 from torch.utils.data import DataLoader, random_split
 
 from losses import DiceLoss, FocalLoss
@@ -19,7 +20,7 @@ from weedmap_dataset import WeedMapDataset
 NUM_CLASSES = 3
 IGNORE_INDEX = 255
 CLASS_NAMES = ("background", "crop", "weed")
-LOSS_CHOICES = ("ce", "weighted_ce", "focal", "dice_ce")
+LOSS_CHOICES = ("ce", "weighted_ce", "focal", "dice_ce", "boundary_weighted_ce")
 INPUT_CHOICES = ("rgb", "multispectral")
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -39,6 +40,48 @@ class DiceCELoss(nn.Module):
         return self.cross_entropy(logits, targets) + self.dice(logits, targets)
 
 
+class BoundaryWeightedCELoss(nn.Module):
+    """Weight valid pixels within a Euclidean radius of label boundaries."""
+
+    def __init__(self, radius=5, boundary_weight=3.0, ignore_index=IGNORE_INDEX):
+        super().__init__()
+        self.radius = radius
+        self.boundary_weight = boundary_weight
+        self.ignore_index = ignore_index
+        self.cross_entropy = nn.CrossEntropyLoss(
+            ignore_index=ignore_index, reduction="none"
+        )
+        offsets = torch.arange(-radius, radius + 1)
+        yy, xx = torch.meshgrid(offsets, offsets, indexing="ij")
+        kernel = ((xx * xx + yy * yy) <= radius * radius).float()
+        self.register_buffer("dilation_kernel", kernel[None, None])
+
+    def forward(self, logits, targets):
+        valid = targets != self.ignore_index
+        boundary = torch.zeros_like(valid)
+        horizontal = valid[:, :, 1:] & valid[:, :, :-1] & (
+            targets[:, :, 1:] != targets[:, :, :-1]
+        )
+        boundary[:, :, 1:] |= horizontal
+        boundary[:, :, :-1] |= horizontal
+        vertical = valid[:, 1:, :] & valid[:, :-1, :] & (
+            targets[:, 1:, :] != targets[:, :-1, :]
+        )
+        boundary[:, 1:, :] |= vertical
+        boundary[:, :-1, :] |= vertical
+
+        nearby = F.conv2d(
+            boundary[:, None].float(),
+            self.dilation_kernel,
+            padding=self.radius,
+        )[:, 0] > 0
+        pixel_loss = self.cross_entropy(logits, targets)
+        weights = torch.ones_like(pixel_loss)
+        weights[nearby & valid] = self.boundary_weight
+        weights *= valid
+        return (pixel_loss * weights).sum() / weights.sum()
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", default="data/weedmap")
@@ -50,6 +93,8 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--loss", choices=LOSS_CHOICES, default="weighted_ce")
+    parser.add_argument("--boundary-radius", type=int, default=5)
+    parser.add_argument("--boundary-weight", type=float, default=3.0)
     parser.add_argument("--background-weight", type=float, default=1.0)
     parser.add_argument("--crop-weight", type=float, default=4.0)
     parser.add_argument("--weed-weight", type=float, default=8.0)
@@ -81,6 +126,10 @@ def parse_args():
         parser.error("--lr 必须是有限正数")
     if args.num_workers < 0:
         parser.error("--num-workers 不能小于 0")
+    if args.boundary_radius < 0:
+        parser.error("--boundary-radius 不能小于 0")
+    if not math.isfinite(args.boundary_weight) or args.boundary_weight < 1:
+        parser.error("--boundary-weight 必须是大于或等于 1 的有限数")
     return args
 
 
@@ -222,6 +271,13 @@ def main():
             num_classes=NUM_CLASSES,
             ignore_index=IGNORE_INDEX,
         )
+    elif args.loss == "boundary_weighted_ce":
+        class_weights = None
+        criterion = BoundaryWeightedCELoss(
+            radius=args.boundary_radius,
+            boundary_weight=args.boundary_weight,
+            ignore_index=IGNORE_INDEX,
+        ).to(device)
     else:
         class_weights = None
         criterion = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
@@ -260,6 +316,8 @@ def main():
     print(f"train samples: {train_size}")
     print(f"val samples: {val_size}")
     print(f"loss type: {args.loss}")
+    print(f"boundary radius: {args.boundary_radius}")
+    print(f"boundary weight: {args.boundary_weight}")
     print(f"ignore_index={IGNORE_INDEX}")
     if class_weights is not None:
         print(
