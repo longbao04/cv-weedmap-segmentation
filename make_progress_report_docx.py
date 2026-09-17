@@ -1,878 +1,231 @@
 #!/usr/bin/env python3
-"""Generate the supervisor-facing WeedMap progress report as a DOCX file."""
+"""Regenerate the existing supervisor-facing WeedMap progress report."""
 
-from __future__ import annotations
-
-import csv
-import os
-import shutil
 from pathlib import Path
-
-os.environ.setdefault("MPLBACKEND", "Agg")
-os.environ.setdefault("MPLCONFIGDIR", str(Path("/tmp") / "weedmap_matplotlib"))
-
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 from docx import Document
-from docx.enum.section import WD_SECTION
-from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK, WD_LINE_SPACING
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Inches, Pt, RGBColor
-from PIL import Image
-
+from docx.shared import Cm, Pt, RGBColor
 
 ROOT = Path(__file__).resolve().parent
-REPORTS_DIR = ROOT / "reports"
-ASSETS_DIR = REPORTS_DIR / "assets"
-SOURCE_MD = REPORTS_DIR / "weedmap_progress_report.md"
-OUTPUT_DOCX = REPORTS_DIR / "weedmap_progress_report.docx"
-
-NAVY = "17365D"
-BLUE = "2F5597"
-PALE_BLUE = "EAF1F8"
-PALE_GRAY = "F5F7FA"
-MID_GRAY = "D9E1E8"
-TEXT_GRAY = "4B5563"
-WHITE = "FFFFFF"
-BLACK = "000000"
-GREEN = "2F855A"
-
-COPY_ASSETS = {
-    "real_weedmap_sample_frame0070.png": "real_weedmap_sample_frame0070.png",
-    "real_weedmap_prediction_multispectral_weighted_ce.png": "real_prediction_3epochs.png",
-    "real_weedmap_prediction_multispectral_weighted_ce_10epochs.png": "real_prediction_10epochs.png",
-    "synthetic_prediction.png": "synthetic_prediction.png",
-    "synthetic_history_weighted.png": "synthetic_history_weighted.png",
-    "synthetic_history_multispectral_weighted_ce.png": "synthetic_history_multispectral_weighted_ce.png",
-    "synthetic_history_ce.png": "synthetic_history_ce.png",
-    "synthetic_history_focal.png": "synthetic_history_focal.png",
-    "synthetic_history_dice.png": "synthetic_history_dice.png",
-}
+OUTPUT = ROOT / "reports" / "weedmap_progress_report.docx"
+INK, NAVY, PALE, GRID = "17212B", "213B58", "F2F6FA", "D9D9D9"
 
 
-def set_cell_shading(cell, fill: str) -> None:
-    tc_pr = cell._tc.get_or_add_tcPr()
-    shd = tc_pr.find(qn("w:shd"))
-    if shd is None:
-        shd = OxmlElement("w:shd")
-        tc_pr.append(shd)
-    shd.set(qn("w:fill"), fill)
-
-
-def set_cell_margins(cell, top=90, start=100, bottom=90, end=100) -> None:
-    tc = cell._tc
-    tc_pr = tc.get_or_add_tcPr()
-    tc_mar = tc_pr.first_child_found_in("w:tcMar")
-    if tc_mar is None:
-        tc_mar = OxmlElement("w:tcMar")
-        tc_pr.append(tc_mar)
-    for margin, value in (("top", top), ("start", start), ("bottom", bottom), ("end", end)):
-        node = tc_mar.find(qn(f"w:{margin}"))
-        if node is None:
-            node = OxmlElement(f"w:{margin}")
-            tc_mar.append(node)
-        node.set(qn("w:w"), str(value))
-        node.set(qn("w:type"), "dxa")
-
-
-def set_table_borders(table, color=MID_GRAY, size="5") -> None:
-    tbl_pr = table._tbl.tblPr
-    borders = tbl_pr.find(qn("w:tblBorders"))
-    if borders is None:
-        borders = OxmlElement("w:tblBorders")
-        tbl_pr.append(borders)
-    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
-        element = borders.find(qn(f"w:{edge}"))
-        if element is None:
-            element = OxmlElement(f"w:{edge}")
-            borders.append(element)
-        element.set(qn("w:val"), "single")
-        element.set(qn("w:sz"), size)
-        element.set(qn("w:space"), "0")
-        element.set(qn("w:color"), color)
-
-
-def set_repeat_table_header(row) -> None:
-    tr_pr = row._tr.get_or_add_trPr()
-    tbl_header = OxmlElement("w:tblHeader")
-    tbl_header.set(qn("w:val"), "true")
-    tr_pr.append(tbl_header)
-
-
-def keep_row_together(row) -> None:
-    tr_pr = row._tr.get_or_add_trPr()
-    element = OxmlElement("w:cantSplit")
-    tr_pr.append(element)
-
-
-def keep_paragraph(paragraph, keep_next=False, page_break_before=False) -> None:
-    p_pr = paragraph._p.get_or_add_pPr()
-    if keep_next:
-        node = OxmlElement("w:keepNext")
-        p_pr.append(node)
-    if page_break_before:
-        node = OxmlElement("w:pageBreakBefore")
-        p_pr.append(node)
-
-
-def set_run_font(run, latin="Arial", east_asia="Arial Unicode MS", size=None, bold=None, color=None) -> None:
-    run.font.name = latin
-    run._element.get_or_add_rPr().rFonts.set(qn("w:ascii"), latin)
-    run._element.get_or_add_rPr().rFonts.set(qn("w:hAnsi"), latin)
-    run._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), east_asia)
-    if size is not None:
-        run.font.size = Pt(size)
-    if bold is not None:
-        run.bold = bold
-    if color is not None:
-        run.font.color.rgb = RGBColor.from_string(color)
-
-
-def set_style_font(style, latin, east_asia, size, bold=False, color=BLACK) -> None:
-    style.font.name = latin
+def set_font(style, size, bold=False):
+    style.font.name = "Arial"
     style.font.size = Pt(size)
     style.font.bold = bold
-    style.font.color.rgb = RGBColor.from_string(color)
-    style._element.get_or_add_rPr().rFonts.set(qn("w:ascii"), latin)
-    style._element.get_or_add_rPr().rFonts.set(qn("w:hAnsi"), latin)
-    style._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), east_asia)
+    style.font.color.rgb = RGBColor.from_string(INK)
+    rpr = style._element.get_or_add_rPr()
+    fonts = rpr.rFonts
+    if fonts is None:
+        fonts = OxmlElement("w:rFonts")
+        rpr.insert(0, fonts)
+    for name in ("ascii", "hAnsi"):
+        fonts.set(qn(f"w:{name}"), "Arial")
+    fonts.set(qn("w:eastAsia"), "PingFang SC")
 
 
-def configure_styles(doc: Document) -> None:
+def setup(doc):
+    sec = doc.sections[0]
+    sec.page_width, sec.page_height = Cm(21), Cm(29.7)
+    sec.top_margin, sec.bottom_margin = Cm(2.1), Cm(1.9)
+    sec.left_margin, sec.right_margin = Cm(2), Cm(2)
     styles = doc.styles
-    normal = styles["Normal"]
-    set_style_font(normal, "Arial", "Arial Unicode MS", 10.5, color=BLACK)
-    normal.paragraph_format.line_spacing = 1.35
-    normal.paragraph_format.space_after = Pt(5)
-    normal.paragraph_format.widow_control = True
-
-    title = styles["Title"]
-    set_style_font(title, "Arial", "Hiragino Sans GB", 24, bold=True, color=BLACK)
-    title.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title.paragraph_format.space_after = Pt(16)
-    title_ppr = title._element.get_or_add_pPr()
-    border = title_ppr.find(qn("w:pBdr"))
+    set_font(styles["Normal"], 10)
+    styles["Normal"].paragraph_format.line_spacing = 1.25
+    styles["Normal"].paragraph_format.space_after = Pt(5)
+    set_font(styles["Title"], 20, True)
+    styles["Title"].paragraph_format.space_after = Pt(12)
+    ppr = styles["Title"]._element.get_or_add_pPr()
+    border = ppr.find(qn("w:pBdr"))
     if border is not None:
-        title_ppr.remove(border)
-
-    for name, size, before, after in (
-        ("Heading 1", 16, 16, 8),
-        ("Heading 2", 12.5, 12, 5),
-        ("Heading 3", 11, 9, 4),
-    ):
-        style = styles[name]
-        set_style_font(style, "Arial", "Hiragino Sans GB", size, bold=True, color=BLACK)
-        style.paragraph_format.space_before = Pt(before)
-        style.paragraph_format.space_after = Pt(after)
-        style.paragraph_format.keep_with_next = True
-
-    if "Figure Caption" not in styles:
-        cap = styles.add_style("Figure Caption", WD_STYLE_TYPE.PARAGRAPH)
-    else:
-        cap = styles["Figure Caption"]
-    set_style_font(cap, "Arial", "Arial Unicode MS", 9, color=TEXT_GRAY)
-    cap.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    cap.paragraph_format.space_before = Pt(3)
-    cap.paragraph_format.space_after = Pt(9)
-    cap.paragraph_format.keep_with_next = False
-
-    if "Small Note" not in styles:
-        note = styles.add_style("Small Note", WD_STYLE_TYPE.PARAGRAPH)
-    else:
-        note = styles["Small Note"]
-    set_style_font(note, "Arial", "Arial Unicode MS", 9.5, color=TEXT_GRAY)
-    note.paragraph_format.line_spacing = 1.25
-    note.paragraph_format.space_after = Pt(5)
+        ppr.remove(border)
+    for name, size, before, after in (("Heading 1", 13, 15, 6), ("Heading 2", 10.5, 9, 4)):
+        set_font(styles[name], size, True)
+        styles[name].paragraph_format.space_before = Pt(before)
+        styles[name].paragraph_format.space_after = Pt(after)
+        styles[name].paragraph_format.keep_with_next = True
+    footer = sec.footer.paragraphs[0]
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    footer.add_run("WeedMap 实验进度报告")
 
 
-def setup_page(section) -> None:
-    section.page_width = Cm(21)
-    section.page_height = Cm(29.7)
-    section.top_margin = Cm(2.2)
-    section.bottom_margin = Cm(2.0)
-    section.left_margin = Cm(2.2)
-    section.right_margin = Cm(2.0)
-    section.header_distance = Cm(1.0)
-    section.footer_distance = Cm(1.0)
+def paragraph(doc, text):
+    return doc.add_paragraph(text)
 
 
-def add_page_number(paragraph) -> None:
-    run = paragraph.add_run()
-    begin = OxmlElement("w:fldChar")
-    begin.set(qn("w:fldCharType"), "begin")
-    instr = OxmlElement("w:instrText")
-    instr.set(qn("xml:space"), "preserve")
-    instr.text = " PAGE "
-    separate = OxmlElement("w:fldChar")
-    separate.set(qn("w:fldCharType"), "separate")
-    text = OxmlElement("w:t")
-    text.text = "1"
-    end = OxmlElement("w:fldChar")
-    end.set(qn("w:fldCharType"), "end")
-    run._r.extend([begin, instr, separate, text, end])
-    set_run_font(run, size=8.5, color=TEXT_GRAY)
+def section(doc, number, title):
+    doc.add_heading(f"{number} {title}", level=1)
 
 
-def configure_header_footer(section) -> None:
-    header = section.header
-    p = header.paragraphs[0]
-    p.text = "cv-weedmap-segmentation  实验进度报告"
-    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    for run in p.runs:
-        set_run_font(run, size=8.5, color=TEXT_GRAY)
-    footer = section.footer
-    p = footer.paragraphs[0]
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    add_page_number(p)
+def shade(cell, color):
+    node = OxmlElement("w:shd")
+    node.set(qn("w:fill"), color)
+    cell._tc.get_or_add_tcPr().append(node)
 
 
-def add_paragraph(doc, text="", *, bold_lead=None, style=None, align=None, indent=True):
-    p = doc.add_paragraph(style=style)
-    if bold_lead and text.startswith(bold_lead):
-        r1 = p.add_run(bold_lead)
-        set_run_font(r1, bold=True)
-        r2 = p.add_run(text[len(bold_lead):])
-        set_run_font(r2)
-    else:
-        r = p.add_run(text)
-        set_run_font(r)
-    if indent and style not in ("Small Note", "Figure Caption"):
-        p.paragraph_format.first_line_indent = Cm(0.74)
-    if align is not None:
-        p.alignment = align
-    return p
-
-
-def add_bullets(doc, items, level=0, numbered=False):
-    for index, item in enumerate(items, 1):
-        p = doc.add_paragraph(style="Normal" if numbered else "List Bullet")
-        p.paragraph_format.left_indent = Cm(0.65 + level * 0.45)
-        p.paragraph_format.first_line_indent = Cm(-0.38 if numbered else -0.25)
-        p.paragraph_format.space_after = Pt(3)
-        r = p.add_run(f"{index}.  {item}" if numbered else item)
-        set_run_font(r)
-
-
-def add_heading(doc, text, level=1):
-    p = doc.add_heading(text, level=level)
-    for run in p.runs:
-        set_run_font(run, latin="Arial", east_asia="Hiragino Sans GB", bold=True, color=BLACK)
-    keep_paragraph(p, keep_next=True)
-    return p
-
-
-def add_table(doc, headers, rows, widths=None, numeric_from=1, font_size=8.5, first_col_left=True):
-    table = doc.add_table(rows=1, cols=len(headers))
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table.autofit = False
-    table.allow_autofit = False
-    set_table_borders(table)
-    set_repeat_table_header(table.rows[0])
-    keep_row_together(table.rows[0])
-    if widths:
-        for col_idx, col_width in enumerate(widths):
-            table.columns[col_idx].width = Cm(col_width)
-    for idx, header in enumerate(headers):
-        cell = table.rows[0].cells[idx]
-        cell.text = str(header)
-        set_cell_shading(cell, NAVY)
-        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-        set_cell_margins(cell)
-        if widths:
-            cell.width = Cm(widths[idx])
-        for p in cell.paragraphs:
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            p.paragraph_format.space_after = Pt(0)
-            p.paragraph_format.line_spacing = 1.05
-            for run in p.runs:
-                set_run_font(run, east_asia="Hiragino Sans GB", size=font_size, bold=True, color=WHITE)
-    for row_idx, values in enumerate(rows):
-        row = table.add_row()
-        keep_row_together(row)
-        cells = row.cells
-        for col_idx, value in enumerate(values):
-            cell = cells[col_idx]
+def table(doc, headers, rows, widths, size=8):
+    t = doc.add_table(rows=1, cols=len(headers))
+    t.autofit = False
+    t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for i, width in enumerate(widths):
+        t.columns[i].width = Cm(width)
+    borders = OxmlElement("w:tblBorders")
+    for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        edge = OxmlElement(f"w:{side}")
+        edge.set(qn("w:val"), "single")
+        edge.set(qn("w:sz"), "5")
+        edge.set(qn("w:color"), GRID)
+        borders.append(edge)
+    t._tbl.tblPr.append(borders)
+    repeat = OxmlElement("w:tblHeader")
+    repeat.set(qn("w:val"), "true")
+    t.rows[0]._tr.get_or_add_trPr().append(repeat)
+    for row_index, values in enumerate([headers, *rows]):
+        row = t.rows[0] if row_index == 0 else t.add_row()
+        row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
+        for i, value in enumerate(values):
+            cell = row.cells[i]
+            cell.width = Cm(widths[i])
             cell.text = str(value)
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-            set_cell_margins(cell)
-            if widths:
-                cell.width = Cm(widths[col_idx])
-            if row_idx % 2:
-                set_cell_shading(cell, PALE_GRAY)
+            if row_index == 0:
+                shade(cell, NAVY)
+            elif row_index % 2 == 0:
+                shade(cell, PALE)
+            mar = OxmlElement("w:tcMar")
+            for side, amount in (("top", 95), ("bottom", 95), ("start", 90), ("end", 90)):
+                item = OxmlElement(f"w:{side}")
+                item.set(qn("w:w"), str(amount))
+                item.set(qn("w:type"), "dxa")
+                mar.append(item)
+            cell._tc.get_or_add_tcPr().append(mar)
             for p in cell.paragraphs:
-                p.alignment = WD_ALIGN_PARAGRAPH.LEFT if first_col_left and col_idx < numeric_from else WD_ALIGN_PARAGRAPH.CENTER
+                p.alignment = WD_ALIGN_PARAGRAPH.LEFT if i == 0 else WD_ALIGN_PARAGRAPH.CENTER
                 p.paragraph_format.space_after = Pt(0)
-                p.paragraph_format.line_spacing = 1.05
+                p.paragraph_format.line_spacing = 1.08
                 for run in p.runs:
-                    set_run_font(run, size=font_size)
-    doc.add_paragraph().paragraph_format.space_after = Pt(1)
-    return table
+                    run.font.name = "Arial"
+                    run.font.size = Pt(size)
+                    run.font.bold = row_index == 0
+                    run.font.color.rgb = RGBColor.from_string("FFFFFF" if row_index == 0 else INK)
+                    run._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "PingFang SC")
+    doc.add_paragraph().paragraph_format.space_after = Pt(0)
 
 
-def add_figure(doc, path: Path, caption: str, number: int, max_width_cm=16.2):
-    if not path.exists():
-        return False
-    with Image.open(path) as image:
-        px_w, px_h = image.size
-    width_cm = max_width_cm
-    if px_h / max(px_w, 1) > 0.95:
-        width_cm = min(max_width_cm, 14.5)
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(5)
-    p.paragraph_format.space_after = Pt(0)
-    keep_paragraph(p, keep_next=True)
-    p.add_run().add_picture(str(path), width=Cm(width_cm))
-    cap = doc.add_paragraph(f"图 {number}  {caption}", style="Figure Caption")
-    keep_paragraph(cap)
-    return True
+def metrics(doc, rows, size=7.5):
+    table(doc, ["模型 / 损失", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"],
+          rows, [4.2, 2.35, 2.35, 2.8, 2.5, 2.8], size)
 
 
-def add_key_value_table(doc, pairs):
-    return add_table(doc, ["项目", "内容"], pairs, widths=[4.2, 11.6], numeric_from=2, font_size=9)
-
-
-def copy_assets() -> None:
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    outputs = ROOT / "outputs"
-    for source_name, target_name in COPY_ASSETS.items():
-        source = outputs / source_name
-        target = ASSETS_DIR / target_name
-        if source.exists():
-            shutil.copy2(source, target)
-
-
-def generate_training_curve() -> bool:
-    csv_path = ROOT / "outputs" / "real_weedmap_history_multispectral_weighted_ce_10epochs.csv"
-    output = ASSETS_DIR / "real_weedmap_10epoch_curves.png"
-    if not csv_path.exists():
-        return False
-    records = []
-    with csv_path.open(newline="", encoding="utf-8-sig") as handle:
-        records = list(csv.DictReader(handle))
-    if not records:
-        return False
-    epochs = [int(float(row["epoch"])) for row in records]
-    loss = [float(row["train_loss"]) for row in records]
-    metrics = {
-        "Val mean IoU": [float(row["mean_iou"]) * 100 for row in records],
-        "Background IoU": [float(row["background_iou"]) * 100 for row in records],
-        "Crop IoU": [float(row["crop_iou"]) * 100 for row in records],
-        "Weed IoU": [float(row["weed_iou"]) * 100 for row in records],
-    }
-    plt.rcParams.update({"font.size": 10, "axes.titlesize": 12, "axes.labelsize": 10})
-    fig, axes = plt.subplots(1, 2, figsize=(10.8, 4.2), dpi=180)
-    axes[0].plot(epochs, loss, marker="o", color="#2F5597", linewidth=2)
-    axes[0].set_title("Training loss")
-    axes[0].set_xlabel("Epoch")
-    axes[0].set_ylabel("Loss")
-    axes[0].set_xticks(epochs)
-    axes[0].grid(alpha=0.25)
-    colors = ["#2F5597", "#4C78A8", "#59A14F", "#E15759"]
-    for (label, values), color in zip(metrics.items(), colors):
-        axes[1].plot(epochs, values, marker="o", label=label, linewidth=2, color=color)
-    axes[1].set_title("Validation IoU")
-    axes[1].set_xlabel("Epoch")
-    axes[1].set_ylabel("IoU (%)")
-    axes[1].set_xticks(epochs)
-    axes[1].set_ylim(0, 105)
-    axes[1].grid(alpha=0.25)
-    axes[1].legend(frameon=False, fontsize=8, loc="lower right")
-    fig.suptitle("Real WeedMap multispectral U-Net 10-epoch history", fontsize=13, fontweight="bold")
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
-    fig.savefig(output, bbox_inches="tight", facecolor="white")
-    plt.close(fig)
-    return True
-
-
-def add_cover(doc: Document) -> None:
-    for _ in range(4):
-        doc.add_paragraph()
-    p = doc.add_paragraph(style="Title")
-    r = p.add_run("基于无人机多光谱影像的\n作物、杂草、土壤/背景区分实验进度报告")
-    set_run_font(r, latin="Arial", east_asia="Hiragino Sans GB", size=24, bold=True, color=BLACK)
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.line_spacing = 1.25
-
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_after = Pt(30)
-    r = p.add_run("cv-weedmap-segmentation 项目阶段性汇报")
-    set_run_font(r, latin="Arial", east_asia="Hiragino Sans GB", size=14, color=TEXT_GRAY)
-
-    cover_rows = [
-        ("研究方向", "无人机农业遥感 / 多光谱图像语义分割"),
-        ("当前阶段", "Synthetic 与真实 WeedMap 实验完成，已完成严格公平输入对比、best checkpoint 验证、类别权重调参、20 epochs、多 seed loss 对比及边界误差分析"),
-        ("汇报内容", "项目构思、实验流程、模型方法、关键变量、实验结果、可视化分析、下一步计划"),
-    ]
-    table = add_table(doc, ["基本信息", "阶段说明"], cover_rows, widths=[3.2, 12.6], numeric_from=2, font_size=9.5)
-    table.rows[0].cells[0].merge(table.rows[0].cells[1])
-    for p in table.rows[0].cells[0].paragraphs[1:]:
-        p._element.getparent().remove(p._element)
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(16)
-    r = p.add_run("阶段结论  Boundary weighted CE 的 Mean IoU 为 75.08% ± 1.10%，Weed IoU 为 57.66% ± 1.58%；Weighted CE 为稳定 baseline")
-    set_run_font(r, east_asia="Hiragino Sans GB", size=11, bold=True, color=BLUE)
-    doc.add_page_break()
-
-
-def add_toc(doc: Document) -> None:
-    add_heading(doc, "目录", level=1)
-    entries = [
-        "项目背景与研究目标", "整体实验路线", "光谱指数模拟实验", "光谱阈值 baseline",
-        "Synthetic 语义分割实验", "Class weights 与 loss function 对比",
-        "Synthetic RGB vs multispectral 对比", "真实 WeedMap 数据读取与结构检查",
-        "真实标签映射验证", "WeedMap PyTorch Dataset", "真实 WeedMap U-Net 训练",
-        "10 epochs 稳定性实验", "严格公平 RGB vs Multispectral 对比",
-        "Best checkpoint 验证", "Weed class weight 调参", "20 epochs 训练实验",
-        "20 epochs 多 seed 重复实验", "Loss 多 seed 对比实验",
-        "Boundary error analysis 与 boundary weighted CE",
-        "真实预测可视化与误差分析", "关键指标和变量解释",
-        "当前结论", "下一步计划", "给导师汇报时可以说的话",
-    ]
-    table = doc.add_table(rows=0, cols=2)
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table.autofit = False
-    for i, entry in enumerate(entries, 1):
-        cells = table.add_row().cells
-        cells[0].width = Cm(1.3)
-        cells[1].width = Cm(14.5)
-        cells[0].text = f"{i:02d}"
-        cells[1].text = entry
-        for col, cell in enumerate(cells):
-            set_cell_margins(cell, top=70, bottom=70)
-            if i % 2 == 0:
-                set_cell_shading(cell, PALE_GRAY)
-            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-            for p in cell.paragraphs:
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER if col == 0 else WD_ALIGN_PARAGRAPH.LEFT
-                p.paragraph_format.space_after = Pt(0)
-                for run in p.runs:
-                    set_run_font(run, east_asia="Hiragino Sans GB" if col == 0 else "Arial Unicode MS", size=10, bold=(col == 0), color=BLUE if col == 0 else BLACK)
-    doc.add_page_break()
-
-
-def add_route_table(doc: Document) -> None:
-    steps = [
-        "环境准备", "光谱指数\n模拟实验", "Synthetic\n语义分割", "真实数据读取\n与结构检查", "标签映射\n验证",
-        "Dataset\n构建", "真实 U-Net\n训练", "预测可视化\n与误差分析", "RGB 与多光谱\n对比及改进",
-    ]
-    rows = []
-    for idx, step in enumerate(steps, 1):
-        rows.append((f"{idx:02d}", step, "已完成"))
-    add_table(doc, ["步骤", "实验环节", "进度"], rows, widths=[1.7, 10.2, 3.9], numeric_from=2, font_size=9.5)
-
-
-def build_document(curve_generated: bool) -> None:
-    if not SOURCE_MD.exists():
-        raise FileNotFoundError(f"主要内容参考文件不存在: {SOURCE_MD}")
-    SOURCE_MD.read_text(encoding="utf-8")
-
+def build():
     doc = Document()
-    setup_page(doc.sections[0])
-    configure_styles(doc)
-    configure_header_footer(doc.sections[0])
-    doc.core_properties.title = "基于无人机多光谱影像的作物 杂草 土壤背景区分实验进度报告"
-    doc.core_properties.subject = "cv-weedmap-segmentation 项目阶段性汇报"
-    doc.core_properties.keywords = "无人机农业遥感, 多光谱, 语义分割, WeedMap, U-Net"
+    setup(doc)
+    doc.core_properties.title = "WeedMap 多光谱语义分割实验进度报告"
+    doc.add_paragraph("WeedMap 多光谱语义分割实验进度报告", style="Title")
+    paragraph(doc, "面向导师的阶段性汇报。报告总结真实 WeedMap 数据处理、统一样本对照、三 seed 模型实验，以及基于植被覆盖率的后续模型路线。当前最佳设置为 MobileNetV2ShallowUNet 方案 A + boundary weighted CE r5_w4：验证集 Mean IoU 76.71% ± 0.55%，Weed IoU 59.82% ± 0.64%。")
 
-    add_cover(doc)
-    add_toc(doc)
+    section(doc, 1, "项目目标与数据集")
+    paragraph(doc, "项目目标是利用无人机 RGB 与多光谱影像，将每个有效像素分为 background、crop、weed，为田间杂草识别和精准除草提供区域信息。前期通过 NDVI、NDRE 模拟光谱差异，并用 synthetic 数据跑通分割流程；报告中的主要结论依据真实 WeedMap Tiles 实验。")
+    paragraph(doc, "真实 tile 尺寸为 360 × 480。原始数据检查得到 1670 个候选样本；后续严格对照使用 RGB 与多光谱均可用的 WeedMap common split，共 454 张，固定划分为训练 363 张、验证 91 张。多光谱输入为 G、R、RedEdge、NIR、NDVI 五通道。")
 
-    add_heading(doc, "1 项目背景与研究目标")
-    add_paragraph(doc, "本项目面向无人机农业遥感场景，目标是利用无人机影像中的空间纹理、多光谱通道和植被指数，对实验田中的作物、杂草、土壤或其他背景进行像素级区分。当前阶段使用 WeedMap 公共数据验证完整方法流程，后续可迁移至水稻田或柑橘田，并根据实际传感器波段和标注体系进行适配。")
-    add_paragraph(doc, "任务定义：本研究属于语义分割，不是整张图分类。输入是无人机 RGB 图像或多光谱通道，输出是每个像素的类别，类别包括 background、crop 和 weed。该任务与导师课题中的作物、杂草、土壤区分高度相关。", bold_lead="任务定义：")
-    add_bullets(doc, [
-        "输入：无人机 RGB 图像或多光谱通道。",
-        "输出：与输入空间位置对应的像素级类别图。",
-        "目标类别：background、crop、weed。",
-        "阶段目标：验证数据读取、标签映射、训练、评价与可视化流程，并形成可迁移的实验基线。",
-    ])
+    section(doc, 2, "真实 WeedMap 数据处理与标签映射")
+    paragraph(doc, "已检查影像、GroundTruth 与有效区 mask 的空间对应关系。本地数据中 GroundTruth_color 的类别语义最明确，Dataset 从 color 标签生成 0/1/2 类别；mask=255 标记无效区域，在训练和评价中作为 ignore_index。")
+    table(doc, ["数据", "原值", "训练含义"], [
+        ("GroundTruth_color", "black / green / red", "background=0 / crop=1 / weed=2"),
+        ("GroundTruth_iMap", "0 / 10000 / 2", "对应 background / crop / weed；10000 不是 ignore"),
+        ("mask", "0 / 255", "有效区域 / 无效区域"),
+    ], [4, 4.7, 8.3], 8.8)
 
-    add_heading(doc, "2 整体实验路线")
-    add_paragraph(doc, "实验采用由可控模拟到真实数据的递进路线。先通过光谱指数与 synthetic 数据验证原理和代码，再进入真实 WeedMap 数据，避免数据格式、标签映射、类别不平衡与模型训练问题同时出现。")
-    add_route_table(doc)
-    add_paragraph(doc, "当前已完成真实预测可视化、严格公平 RGB 与 multispectral 对比、best checkpoint 验证、weed class weight 调参、20 epochs 多 seed 重复、三种 loss 的多 seed 对比，以及边界误差分析和 boundary weighted CE 实验。", bold_lead="当前进度：")
+    section(doc, 3, "RGB 与 multispectral 公平对比")
+    paragraph(doc, "两组使用同一 454 张样本、相同 363/91 划分、SmallUNet、Weighted CE、类别权重 1/4/8、10 epochs 和 batch size 2。下表是验证集最后一轮结果；这是输入通道对照，不能与后文 20 epochs 的 best checkpoint 直接混为同一设置。")
+    metrics(doc, [
+        ("RGB", "94.28%", "65.27%", "95.49%", "65.75%", "34.56%"),
+        ("Multispectral", "94.38%", "67.76%", "94.94%", "61.62%", "46.73%"),
+    ], 8)
+    paragraph(doc, "多光谱 Mean IoU 高 2.49 个百分点，Weed IoU 高 12.17 个百分点；RGB Crop IoU 高 4.13 个百分点。该结果支持后续以多光谱作为主输入，并保留对 crop 类差异的关注。")
 
-    add_heading(doc, "3 光谱指数模拟实验")
-    add_paragraph(doc, "为理解多光谱数据的作用，首先模拟三类地物的典型反射率，并计算 NDVI 与 NDRE。数值用于验证光谱差异的方向和阈值方法，不代表具体田块的实测反射率。")
-    add_table(doc, ["class", "Green", "Red", "RedEdge", "NIR", "NDVI", "NDRE"], [
-        ("crop", "0.1200", "0.0501", "0.2398", "0.5500", "0.8332", "0.3928"),
-        ("weed", "0.1401", "0.0701", "0.2800", "0.5099", "0.7587", "0.2912"),
-        ("soil", "0.2000", "0.2301", "0.2600", "0.2899", "0.1151", "0.0544"),
-    ], widths=[2.2, 2.0, 2.0, 2.4, 2.0, 2.1, 2.1], font_size=8.5)
-    add_key_value_table(doc, [
-        ("Green", "绿光波段反射率"), ("Red", "红光波段反射率"),
-        ("RedEdge", "红边波段，常用于植被状态分析"), ("NIR", "近红外波段，健康植被通常反射较强"),
-        ("NDVI", "基于 Red 和 NIR 的植被指数"), ("NDRE", "基于 RedEdge 和 NIR 的植被指数"),
-    ])
-    add_paragraph(doc, "结果表明，soil 的 NDVI 和 NDRE 明显偏低，因此土壤与植被相对容易区分。crop 与 weed 都属于植被，NDVI 均较高，二者更难仅靠单一指数分开，需要进一步结合多光谱信息、形状和空间纹理。", bold_lead="实验结论：")
+    section(doc, 4, "SmallUNet baseline")
+    paragraph(doc, "真实数据主 baseline：WeedMap common split，多光谱输入，SmallUNet，Weighted CE，类别权重 background/crop/weed=1/4/8，20 epochs，batch size 2，seed 0/1/2。每个 seed 按验证集 Mean IoU 选择 best checkpoint；下表的 ± 为三 seed 样本标准差。")
+    metrics(doc, [("SmallUNet + Weighted CE", "96.38% ± 0.36%", "74.78% ± 0.82%", "96.70% ± 0.43%", "70.76% ± 1.11%", "56.89% ± 2.06%")])
+    paragraph(doc, "三个 seed 的 best epoch 均为 15。早期 synthetic 普通 CE 的 Weed IoU 仅 0.26%，加入 class weights 后 5 epochs 达到 75.54%；这一模拟实验说明少数类权重的重要性，但数值不代表真实田间性能。")
 
-    add_heading(doc, "4 光谱阈值 baseline")
-    add_paragraph(doc, "阈值 baseline 使用以下固定规则，作为后续复杂模型的可解释对照：")
-    add_bullets(doc, ["NDVI < 0.4 → soil", "NDVI ≥ 0.4 且 NDRE ≥ 0.35 → crop", "NDVI ≥ 0.4 且 NDRE < 0.35 → weed"])
-    add_table(doc, ["指标", "结果"], [("Overall accuracy", "99.84%"), ("Crop accuracy", "99.66%"), ("Weed accuracy", "100.00%"), ("Soil accuracy", "100.00%")], widths=[8.0, 7.8], numeric_from=1, font_size=9.5)
-    add_paragraph(doc, "该结果来自具有明显光谱差异的模拟分布，不能直接代表真实田间效果。baseline 的价值是提供简单、可解释、可复现的参照，用于判断后续复杂模型是否带来真实增益。")
-
-    add_heading(doc, "5 Synthetic 语义分割实验")
-    add_heading(doc, "5.1 数据与模型设计", level=2)
-    add_bullets(doc, [
-        "background 模拟土壤背景；crop 模拟规则排列的作物行；weed 模拟随机分布的小目标杂草。",
-        "加入噪声以模拟无人机航拍和光照变化，并支持 RGB 与 multispectral 两种输入。",
-        "U-Net encoder 提取高级语义特征，decoder 恢复空间分辨率，skip connection 保留浅层边界与小目标细节。",
-        "模型输出 3 类 logits，分别对应 background、crop、weed。",
-    ])
-    fig_no = 1
-    if add_figure(doc, ASSETS_DIR / "synthetic_prediction.png", "Synthetic crop weed background 分割预测示例", fig_no):
-        fig_no += 1
-    add_heading(doc, "5.2 Synthetic baseline 结果", level=2)
-    add_table(doc, ["Setting", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("CE, 5 epochs", "93.16%", "59.31%", "98.09%", "79.59%", "0.26%"),
-    ], widths=[3.5, 2.3, 2.3, 2.8, 2.3, 2.3], font_size=8.2)
-    add_paragraph(doc, "Pixel accuracy 达到 93.16%，但 weed IoU 仅为 0.26%。模型主要学会了占比较大的 background 和更明显的 crop，几乎没有学会少数类 weed，因此不能只用总体准确率判断模型质量。")
-
-    add_heading(doc, "6 Class weights 与 loss function 对比")
-    add_heading(doc, "6.1 Class weights 改进", level=2)
-    add_paragraph(doc, "Class weights 提高 weed 错分时的损失，使优化过程更重视少数类。加权交叉熵在 5 epochs 已明显改善 weed，延长至 10 epochs 后进一步稳定。")
-    add_table(doc, ["Setting", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("Weighted CE, 5 epochs", "97.05%", "88.57%", "96.55%", "93.60%", "75.54%"),
-        ("Weighted CE, 10 epochs", "98.85%", "94.99%", "98.79%", "96.98%", "89.19%"),
-    ], widths=[4.1, 2.1, 2.1, 2.7, 2.2, 2.2], font_size=8.0)
-    add_paragraph(doc, "与 CE 5 epochs 相比，Weighted CE 5 epochs 将 weed IoU 从 0.26% 提升到 75.54%，说明类别权重能明显缓解当前 synthetic 数据中的类别不平衡。")
-    if add_figure(doc, ASSETS_DIR / "synthetic_history_weighted.png", "Synthetic weighted CE 训练曲线", fig_no):
-        fig_no += 1
-    add_heading(doc, "6.2 Loss function 对比", level=2)
-    add_table(doc, ["Loss", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("CE", "98.04%", "89.71%", "98.66%", "94.34%", "76.14%"),
-        ("Weighted CE", "98.85%", "94.99%", "98.79%", "96.98%", "89.19%"),
-        ("Dice", "97.23%", "85.51%", "98.64%", "91.62%", "66.27%"),
-        ("Focal", "98.00%", "91.16%", "98.18%", "94.00%", "81.30%"),
-    ], widths=[3.2, 2.3, 2.3, 2.8, 2.3, 2.3], font_size=8.2)
-    add_bullets(doc, [
-        "CE：普通交叉熵，进行逐像素多分类。",
-        "Weighted CE：在 CE 中加入类别权重，提高少数类错误的代价。",
-        "Dice Loss：关注预测区域与真实区域的重叠。",
-        "Focal Loss：降低容易分类样本的贡献，更关注难分类样本。",
-    ])
-    add_paragraph(doc, "当前 synthetic 设置下 Weighted CE 整体最好，Focal Loss 次之。具体 loss 的效果依赖数据分布，仍需在真实 WeedMap 数据上复验。", bold_lead="结果判断：")
-
-    add_heading(doc, "7 Synthetic RGB vs multispectral 对比")
-    add_table(doc, ["Input", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("RGB + Weighted CE", "98.85%", "94.99%", "98.79%", "96.98%", "89.19%"),
-        ("Multispectral + Weighted CE", "98.97%", "94.97%", "98.95%", "97.90%", "88.07%"),
-    ], widths=[4.5, 2.1, 2.1, 2.7, 2.2, 2.2], font_size=8.0)
-    add_paragraph(doc, "在 synthetic 数据中，多光谱输入没有在 mean IoU 和 weed IoU 上明显超过 RGB。可能原因是模拟 RGB 的颜色差异已经足够明显，额外波段的信息增益有限。这一结果不代表真实数据中多光谱无效，仍需开展真实数据对照实验。")
-    if add_figure(doc, ASSETS_DIR / "synthetic_history_multispectral_weighted_ce.png", "Synthetic multispectral weighted CE 训练曲线", fig_no):
-        fig_no += 1
-
-    add_heading(doc, "8 真实 WeedMap 数据读取与结构检查")
-    add_bullets(doc, [
-        "已下载并整理 WeedMap Tiles，提取 RedEdge_000 至 RedEdge_004，以及 Sequoia_005 至 Sequoia_007。",
-        "每张 tile 的大小为 360 × 480，标签与影像能够正确读取。",
-        "主要目录包括 tile/RGB、tile/CIR、tile/B、tile/G、tile/R、tile/RE、tile/NIR、tile/NDVI、groundtruth 和 mask。",
-    ])
-    if add_figure(doc, ASSETS_DIR / "real_weedmap_sample_frame0070.png", "真实 WeedMap RedEdge_004 样本可视化，包括 RGB、NDVI、NIR、RedEdge、GroundTruth、mask 和 overlay，说明真实 UAV 多光谱图像与标签能够对齐读取", fig_no, 16.4):
-        fig_no += 1
-
-    add_heading(doc, "9 真实标签映射验证")
-    add_paragraph(doc, "本地像素级核验确认了彩色真值、整数标签和有效区 mask 的含义。")
-    add_table(doc, ["数据源", "数值或颜色", "类别含义"], [
-        ("GroundTruth_color", "black", "background"), ("GroundTruth_color", "green", "crop"),
-        ("GroundTruth_color", "red", "weed"), ("GroundTruth_iMap", "0", "background"),
-        ("GroundTruth_iMap", "10000", "crop"), ("GroundTruth_iMap", "2", "weed"),
-        ("mask", "0", "valid area"), ("mask", "255", "invalid / no-data area"),
-    ], widths=[5.2, 4.2, 6.4], numeric_from=3, font_size=9)
-    add_paragraph(doc, "不能简单把 iMap 中的 10000 当成 ignore。后续训练优先从 GroundTruth_color 生成 0/1/2 标签，再将 mask=255 的区域设为 ignore_index=255。标签语义与无效区域必须分开处理，否则会把 crop 错误忽略。", bold_lead="关键处理：")
-
-    add_heading(doc, "10 WeedMap PyTorch Dataset")
-    add_paragraph(doc, "项目已实现 weedmap_dataset.py。RGB 模式读取 tile/RGB 并输出 3 通道；multispectral 模式读取 tile/G、tile/R、tile/RE、tile/NIR 和 tile/NDVI，输出 5 通道。")
-    add_key_value_table(doc, [
-        ("image", "torch.float32，shape=[C,H,W]，归一化到 0～1"),
-        ("label", "torch.long，shape=[H,W]"),
-        ("label values", "0=background，1=crop，2=weed，255=ignore"),
-        ("过滤规则", "跳过缺失文件、全黑图像、label 全为 ignore、有效像素过少或没有前景的样本"),
-    ])
-    add_table(doc, ["Dataset", "Loaded Samples", "Skipped Missing", "Skipped Empty/Invalid"], [
-        ("RGB", "454", "700", "516"), ("Multispectral", "884", "0", "786"),
-    ], widths=[4.2, 3.7, 3.7, 4.2], font_size=9)
-    add_paragraph(doc, "第一个有效样本检查结果为 image max > 0，label unique values = [0, 1, 2, 255]；background=104834、crop=4568、weed=2756、ignore=60642。该统计也说明 background 明显多于 crop 和 weed。")
-
-    add_heading(doc, "11 真实 WeedMap U-Net 训练")
-    add_paragraph(doc, "项目已实现 train_real_weedmap_unet.py，并完成真实多光谱输入的首轮训练。")
-    add_key_value_table(doc, [
-        ("input_type", "multispectral"), ("loss", "weighted_ce"), ("epochs", "3"),
-        ("batch_size", "2"), ("learning rate", "0.001"), ("optimizer", "Adam"),
-        ("train / val samples", "707 / 177"), ("ignore_index", "255"),
-        ("class weights", "background=1.0，crop=4.0，weed=8.0"),
-    ])
-    add_bullets(doc, [
-        "epochs 表示完整遍历训练集的轮数；batch_size 表示每次送入模型的样本数；lr 控制参数更新步长。",
-        "weighted_ce 是带类别权重的交叉熵；ignore_index=255 使无效区域不参与 loss 和评价。",
-        "class weights 提高 crop 和 weed，尤其是 weed 错分时的损失权重。",
-    ])
-    add_table(doc, ["Epoch", "Train Loss"], [("1", "0.4497"), ("2", "0.2724"), ("3", "0.2532")], widths=[7.9, 7.9], font_size=9.5)
-    add_table(doc, ["Val Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("95.61%", "56.37%", "97.15%", "56.28%", "15.68%"),
-    ], widths=[3.2, 3.0, 3.4, 3.0, 3.2], numeric_from=0, font_size=8.7, first_col_left=False)
-    add_paragraph(doc, "Train loss 连续下降，说明模型能够正常学习。background 最容易识别，crop 已有初步效果，weed IoU 较低，说明真实杂草比模拟数据更难识别。")
-
-    add_heading(doc, "12 10 epochs 稳定性实验")
-    epoch_rows = [
-        ("1", "0.4497", "95.38%", "52.28%", "96.99%", "47.65%", "12.18%"),
-        ("2", "0.2724", "95.25%", "52.53%", "96.84%", "49.52%", "11.24%"),
-        ("3", "0.2532", "95.61%", "56.37%", "97.15%", "56.28%", "15.68%"),
-        ("4", "0.2455", "95.12%", "56.41%", "96.76%", "50.87%", "21.59%"),
-        ("5", "0.2364", "95.52%", "54.94%", "96.83%", "55.68%", "12.31%"),
-        ("6", "0.2365", "95.50%", "54.14%", "96.81%", "53.91%", "11.70%"),
-        ("7", "0.2257", "95.07%", "57.62%", "96.18%", "57.81%", "18.86%"),
-        ("8", "0.2099", "96.40%", "62.65%", "97.17%", "62.13%", "28.66%"),
-        ("9", "0.2019", "96.29%", "63.80%", "97.14%", "60.38%", "33.90%"),
-        ("10", "0.1781", "97.22%", "69.21%", "97.69%", "64.17%", "45.76%"),
-    ]
-    add_table(doc, ["Epoch", "Train Loss", "Val Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], epoch_rows, widths=[1.4, 2.2, 2.6, 2.2, 2.8, 2.3, 2.3], numeric_from=0, font_size=7.2, first_col_left=False)
-    curve_path = ASSETS_DIR / "real_weedmap_10epoch_curves.png"
-    if curve_generated and add_figure(doc, curve_path, "真实 WeedMap 多光谱 U-Net 的 train loss 与验证集 mean background crop weed IoU", fig_no, 16.4):
-        fig_no += 1
-    else:
-        add_paragraph(doc, "训练曲线图暂未生成。", style="Small Note", indent=False)
-    add_table(doc, ["Setting", "Val Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("3 epochs", "95.61%", "56.37%", "97.15%", "56.28%", "15.68%"),
-        ("10 epochs", "97.22%", "69.21%", "97.69%", "64.17%", "45.76%"),
-    ], widths=[3.3, 2.5, 2.3, 2.8, 2.3, 2.3], font_size=8.0)
-    add_paragraph(doc, "Weed IoU 从 15.68% 提升到 45.76%，mean IoU 从 56.37% 提升到 69.21%。增加训练轮数对真实 WeedMap 的 weed 类非常有效；中间轮次仍有波动，后续应通过更长训练和多 seed 实验判断稳定性。", bold_lead="主要结果：")
-
-    add_heading(doc, "13 严格公平 RGB vs Multispectral 对比")
-    add_heading(doc, "13.1 实验设置", level=2)
-    add_bullets(doc, [
-        "RGB 和 multispectral 使用同一个 sample_list_csv，以及完全相同的 454 个样本。",
-        "训练集 363 个样本，验证集 91 个样本；两种输入使用相同的数据划分。",
-        "统一使用 weighted CE、10 epochs、batch size=2 和 ignore_index=255。",
-        "Class weights 统一为 background=1.0、crop=4.0、weed=8.0。",
-    ])
-    add_paragraph(doc, "控制样本集合、数据划分、训练轮数、loss 和类别权重后，可以更可靠地判断输入通道带来的差异。")
-    add_heading(doc, "13.2 实验结果", level=2)
-    add_table(doc, ["Input", "Train Loss", "Val Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("RGB", "0.2956", "94.28%", "65.27%", "95.49%", "65.75%", "34.56%"),
-        ("Multispectral", "0.2166", "94.38%", "67.76%", "94.94%", "61.62%", "46.73%"),
-    ], widths=[2.7, 2.0, 2.4, 2.1, 2.7, 2.1, 2.1], numeric_from=1, font_size=7.2)
-    add_paragraph(doc, "Multispectral 的 mean IoU 比 RGB 高 2.49 个百分点，weed IoU 高 12.17 个百分点，表明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 高 4.13 个百分点，但 weed 是本课题的关键难点，因此后续继续使用 multispectral。")
-    add_paragraph(doc, "Multispectral 在 Epoch 8 的 mean IoU 为 70.38%、weed IoU 为 50.43%，均高于 Epoch 10 的 67.76% 和 46.73%，说明训练后期存在波动。", bold_lead="训练波动：")
-
-    add_heading(doc, "14 Best checkpoint 验证结果")
-    add_paragraph(doc, "严格公平 multispectral 实验根据验证集 mean IoU 保存 best checkpoint。整体结果和最后一轮的对比如下。")
-    add_table(doc, ["Checkpoint", "Epoch", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("Best checkpoint", "8", "70.38%", "96.09%", "64.61%", "50.43%"),
-        ("Final checkpoint", "10", "67.76%", "94.94%", "61.62%", "46.73%"),
-    ], widths=[3.5, 1.7, 2.5, 3.0, 2.5, 2.6], numeric_from=1, font_size=8.0)
-    add_paragraph(doc, "Best model path：models/real_weedmap_common_multispectral_weighted_ce_10epochs_best.pth", bold_lead="Best model path：", style="Small Note", indent=False)
-    add_table(doc, ["单张 sample index=0", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("Epoch 10 final", "92.63%", "57.12%", "93.41%", "48.42%", "29.53%"),
-        ("Best checkpoint", "94.19%", "60.77%", "94.96%", "53.49%", "33.85%"),
-    ], widths=[3.8, 2.3, 2.3, 2.8, 2.3, 2.3], numeric_from=1, font_size=7.8)
-    add_paragraph(doc, "Best checkpoint 在整体验证集和单张样本上都优于最后一轮。后续实验应根据验证集 mean IoU 保存并优先报告 best checkpoint，避免训练后期波动掩盖最佳性能。")
-
-    add_heading(doc, "15 Weed class weight 调参实验")
-    add_paragraph(doc, "在严格公平对比确定 multispectral 输入后，保持 363/91 的训练与验证划分、weighted CE、10 epochs、batch size=2 和 best checkpoint 规则不变，将 background/crop 权重固定为 1/4，仅比较 weed 权重 8、12、16。")
-    add_table(doc, ["Weed Weight", "Best Epoch", "Best Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("8", "8", "70.38%", "96.09%", "64.61%", "50.43%"),
-        ("12", "8", "69.64%", "95.25%", "64.63%", "49.04%"),
-        ("16", "8", "67.98%", "94.72%", "62.88%", "46.36%"),
-    ], widths=[2.8, 2.4, 2.8, 3.0, 2.5, 2.5], numeric_from=0, font_size=8.0, first_col_left=False)
-    add_paragraph(doc, "Weed weight=8 的 best mean IoU 和 weed IoU 均最高。权重提高到 12 和 16 后指标下降，说明 weed 权重并非越大越好；过大的权重会破坏三类之间的平衡。因此默认 class weights 继续采用 1/4/8。", bold_lead="结果判断：")
-
-    add_heading(doc, "16 20 epochs 训练实验")
-    add_paragraph(doc, "在 multispectral + weighted CE + class weights 1/4/8 设置下，将训练延长到 20 epochs，并继续根据验证集 mean IoU 选择 best checkpoint。")
-    add_table(doc, ["Setting", "Best Epoch", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("10 epochs best", "8", "95.47%", "70.38%", "96.09%", "64.61%", "50.43%"),
-        ("20 epochs best", "15", "95.97%", "73.88%", "96.20%", "70.89%", "54.54%"),
-    ], widths=[3.2, 1.9, 2.2, 2.1, 2.7, 2.2, 2.2], numeric_from=1, font_size=7.3)
-    add_paragraph(doc, "20 epochs best checkpoint 将 mean IoU 从 70.38% 提升到 73.88%，weed IoU 从 50.43% 提升到 54.54%，crop IoU 从 64.61% 提升到 70.89%。Epoch 20 的 mean IoU 回落到 69.52%、weed IoU 回落到 46.82%，进一步说明 best checkpoint 必不可少。")
-    add_table(doc, ["单张 sample index=0", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("10 epochs best", "94.19%", "60.77%", "94.96%", "53.49%", "33.85%"),
-        ("20 epochs best", "94.82%", "63.90%", "95.32%", "59.39%", "36.99%"),
-    ], widths=[3.8, 2.3, 2.3, 2.8, 2.3, 2.3], numeric_from=1, font_size=7.8)
-
-    add_heading(doc, "17 20 epochs 多 seed 重复实验")
-    add_paragraph(doc, "使用固定的 363/91 数据划分、multispectral 输入、weighted CE、class weights 1/4/8、20 epochs 和 best checkpoint，分别运行 seed 0、1、2。")
-    add_table(doc, ["Seed", "Best Epoch", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("0", "15", "95.97%", "73.88%", "96.20%", "70.89%", "54.54%"),
-        ("1", "15", "96.51%", "74.99%", "96.96%", "69.59%", "58.44%"),
-        ("2", "15", "96.65%", "75.47%", "96.94%", "71.80%", "57.68%"),
-    ], widths=[1.6, 2.1, 2.3, 2.2, 2.7, 2.3, 2.3], numeric_from=0, font_size=7.5, first_col_left=False)
-    add_heading(doc, "17.1 多 seed 均值与样本标准差", level=2)
-    add_table(doc, ["Metric", "Mean ± Std"], [
-        ("Pixel Accuracy", "96.38% ± 0.36%"),
-        ("Mean IoU", "74.78% ± 0.82%"),
-        ("Background IoU", "96.70% ± 0.43%"),
-        ("Crop IoU", "70.76% ± 1.11%"),
-        ("Weed IoU", "56.89% ± 2.06%"),
-    ], widths=[7.9, 7.9], numeric_from=1, font_size=9.2)
-    add_paragraph(doc, "三个 seed 的 best epoch 均为 Epoch 15，mean IoU 位于 73.88%～75.47%，weed IoU 均超过 54%。多 seed 结果表明，20 epochs 带来的提升不是单次运行的偶然结果。")
-
-    add_heading(doc, "18 Loss 多 seed 对比实验")
-    add_paragraph(doc, "保持 multispectral 输入、20 epochs、363/91 数据划分、seed 0/1/2 和 best checkpoint 规则一致，对比 Weighted CE、Focal Loss 与 Dice + CE。Weighted CE 使用 class weights 1/4/8。")
-    add_heading(doc, "18.1 Focal Loss 与 Dice + CE 各 seed 结果", level=2)
-    add_table(doc, ["Loss", "Seed", "Best Epoch", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("Focal", "0", "20", "96.59%", "74.72%", "97.09%", "69.55%", "57.52%"),
-        ("Focal", "1", "19", "96.51%", "72.56%", "97.17%", "66.14%", "54.36%"),
-        ("Focal", "2", "19", "96.99%", "74.73%", "97.30%", "72.12%", "54.77%"),
-        ("Dice + CE", "0", "18", "96.81%", "76.35%", "97.17%", "72.07%", "59.82%"),
-        ("Dice + CE", "1", "19", "96.92%", "76.44%", "97.26%", "71.39%", "60.67%"),
-        ("Dice + CE", "2", "16", "96.46%", "70.56%", "97.20%", "65.14%", "49.35%"),
-    ], widths=[2.4, 1.1, 1.7, 1.9, 1.9, 2.3, 1.9, 1.9], numeric_from=1, font_size=6.6)
-    add_heading(doc, "18.2 三种 loss 的均值与样本标准差", level=2)
-    add_table(doc, ["Loss", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+    section(doc, 5, "Loss 对比：Weighted CE / Focal Loss / Dice + CE")
+    paragraph(doc, "固定 common split、多光谱 SmallUNet、20 epochs、batch size 2、seed 0/1/2 和 best checkpoint 选择规则，仅比较损失函数。")
+    metrics(doc, [
         ("Weighted CE", "96.38% ± 0.36%", "74.78% ± 0.82%", "96.70% ± 0.43%", "70.76% ± 1.11%", "56.89% ± 2.06%"),
         ("Focal Loss", "96.69% ± 0.26%", "74.00% ± 1.25%", "97.19% ± 0.11%", "69.27% ± 3.00%", "55.55% ± 1.72%"),
         ("Dice + CE", "96.73% ± 0.24%", "74.45% ± 3.37%", "97.21% ± 0.05%", "69.54% ± 3.82%", "56.61% ± 6.31%"),
-    ], widths=[2.8, 2.7, 2.7, 3.0, 2.7, 2.7], numeric_from=1, font_size=6.8)
-    if add_figure(doc, ASSETS_DIR / "real_weedmap_loss_comparison_seed0.png", "真实 WeedMap seed 0 的 Weighted CE、Focal Loss 与 Dice + CE 对比", fig_no, 16.4):
-        fig_no += 1
-    add_paragraph(doc, "Weighted CE 的平均 mean IoU 和 weed IoU 均为三种 loss 中最高，且跨 seed 波动较小。Dice + CE 在 seed 0 和 1 上表现较强，但 seed 2 明显下降，稳定性仍需进一步验证。")
-    add_paragraph(doc, "阶段结论：在这三种 loss 中，Weighted CE 是稳定 baseline：multispectral + class weights 1/4/8 + 20 epochs + best checkpoint。其 Pixel Accuracy = 96.38% ± 0.36%，Mean IoU = 74.78% ± 0.82%，Weed IoU = 56.89% ± 2.06%（均值 ± 样本标准差）。", bold_lead="阶段结论：")
-
-    add_heading(doc, "19 Boundary error analysis 与 boundary weighted CE")
-    add_heading(doc, "19.1 问题观察与边界误差定位", level=2)
-    add_paragraph(doc, "预测图和 error map 显示，错误主要集中在 crop/weed 轮廓附近。当前 U-Net 已有 encoder-decoder skip connection，并通过 concat 融合特征；但边界仍是分割的主要难点。因此先量化边界误差，再尝试让训练损失更关注边界像素。")
-    add_paragraph(doc, "对 Weighted CE 20 epochs best checkpoint 的 sample index=0 进行统计：5px 边界区域占有效像素的 34.06%，却包含 95.18% 的错误。边界内错误率为 14.48%，边界外仅为 0.38%，说明错误集中在边界，而非大面积内部区域。")
-    add_table(doc, ["Weighted CE：sample index=0", "5px 边界内", "5px 边界外"], [
-        ("错误像素", "5532（占全部错误 95.18%）", "280（占全部错误 4.82%）"),
-        ("错误率", "14.48%", "0.38%"),
-    ], widths=[5.2, 5.3, 5.3], numeric_from=1, font_size=8.5)
-
-    add_heading(doc, "19.2 Boundary weighted CE 设置与多 seed 结果", level=2)
-    add_paragraph(doc, "在 Weighted CE 的类别权重基础上，对边界附近像素提高损失权重：boundary radius=5、boundary weight=3.0。保持 multispectral 输入、20 epochs、batch size=2、相同样本列表 splits/real_weedmap_common_samples.csv 和 best checkpoint 选择规则，运行 seed 0/1/2。")
-    add_table(doc, ["Seed", "Best Epoch", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
-        ("0", "20", "96.71%", "75.95%", "97.10%", "71.66%", "59.09%"),
-        ("1", "16", "96.73%", "73.84%", "97.15%", "68.42%", "55.97%"),
-        ("2", "18", "97.04%", "75.43%", "97.33%", "71.06%", "57.92%"),
-    ], widths=[1.2, 2.0, 2.3, 2.3, 3.2, 2.4, 2.4], numeric_from=0, font_size=7.5)
-    add_paragraph(doc, "三 seed 平均 Mean IoU = 75.08% ± 1.10%，Weed IoU = 57.66% ± 1.58%（均值 ± 样本标准差）。与 Weighted CE 的 74.78% ± 0.82% 和 56.89% ± 2.06% 相比，均值分别小幅提高 0.30 和 0.77 个百分点；Mean IoU 的跨 seed 波动仍需关注。")
-    add_table(doc, ["Loss（三 seed）", "Pixel Acc", "Mean IoU", "Crop IoU", "Weed IoU"], [
-        ("Weighted CE", "96.38% ± 0.36%", "74.78% ± 0.82%", "70.76% ± 1.11%", "56.89% ± 2.06%"),
-        ("Boundary weighted CE", "96.83% ± 0.19%", "75.08% ± 1.10%", "70.38% ± 1.73%", "57.66% ± 1.58%"),
-    ], widths=[3.8, 3.0, 3.0, 3.0, 3.0], numeric_from=1, font_size=7.6)
-
-    add_heading(doc, "19.3 Sample index=0 的边界错误对比", level=2)
-    add_table(doc, ["Loss", "Pixel Acc", "Mean IoU", "Crop IoU", "Weed IoU"], [
-        ("Weighted CE 20 epochs best", "94.82%", "63.90%", "59.39%", "36.99%"),
-        ("Boundary weighted CE", "96.66%", "68.86%", "66.02%", "43.22%"),
-    ], widths=[4.3, 2.7, 2.8, 3.0, 3.0], numeric_from=1, font_size=8)
-    add_table(doc, ["Loss", "Overall error rate", "5px 边界错误率", "5px 边界外错误率", "错误像素数"], [
-        ("Weighted CE", "5.18%", "14.48%", "0.38%", "5812"),
-        ("Boundary weighted CE", "3.34%", "9.50%", "0.16%", "3746"),
-    ], widths=[3.9, 2.8, 3.3, 3.7, 2.1], numeric_from=1, font_size=8)
-    add_paragraph(doc, "Boundary weighted CE 将 sample index=0 的 5px 边界错误率从 14.48% 降至 9.50%，错误像素总数从 5812 降至 3746。剩余错误中仍有 96.90% 落在 5px 边界内，说明边界仍是后续优化重点。")
-    add_paragraph(doc, "阶段性结论：Boundary weighted CE 是当前新的候选主结果，但三 seed 指标仅小幅提升，应继续检验不同边界权重和预测图。Weighted CE 继续作为稳定 baseline。", bold_lead="阶段性结论：")
-
-    add_heading(doc, "20 真实预测可视化与误差分析")
-    three_epoch = ASSETS_DIR / "real_prediction_3epochs.png"
-    if add_figure(doc, three_epoch, "真实 WeedMap 3 epochs 预测结果，包含输入、真值、预测与 error map", fig_no, 16.4):
-        fig_no += 1
-    if add_figure(doc, ASSETS_DIR / "real_prediction_10epochs.png", "真实 WeedMap 10 epochs 预测结果，weed 响应较 3 epochs 明显增加", fig_no, 16.4):
-        fig_no += 1
-    add_table(doc, ["Pixel Accuracy", "Background IoU", "Crop IoU", "Weed IoU", "Mean IoU"], [
-        ("95.49%", "96.24%", "56.40%", "37.34%", "63.33%"),
-    ], widths=[3.2, 3.4, 3.0, 3.0, 3.2], numeric_from=0, font_size=8.7, first_col_left=False)
-    add_paragraph(doc, "上述指标对应 10 epochs 的 sample index=0。单样本指标低于整体验证集最终指标，说明不同样本难度存在差异。")
-    add_bullets(doc, [
-        "模型能识别出部分 crop 行状结构，10 epochs 后 weed 预测明显增多。",
-        "大部分 background 预测正确。错误主要集中在作物与杂草边界，以及零散小目标 weed 周围。",
-        "Weed 仍存在漏检；其面积小、分布零散且外观与作物相近，是当前真实农业遥感中最难的类别。",
     ])
+    paragraph(doc, "Weighted CE 的平均 Mean IoU 和 Weed IoU 均最高，作为稳定 baseline。Dice + CE 的 seed 0/1 表现较强，但 seed 2 明显下降，跨 seed 波动较大；Focal Loss 的平均 Weed IoU 略低。")
 
-    add_heading(doc, "21 关键指标和变量解释")
-    add_table(doc, ["指标或变量", "含义与使用注意"], [
-        ("Pixel Accuracy", "所有有效像素中预测正确的比例。背景占比大时，该值可能很高，但 weed 仍可能预测较差。"),
-        ("IoU", "Intersection over Union，衡量某一类别预测区域与真实区域的交集占并集的比例。"),
-        ("Mean IoU", "background、crop、weed 三类 IoU 的平均值，比 pixel accuracy 更能反映各类分割质量。"),
-        ("Weed IoU", "本项目最重要的指标之一。杂草通常小且零散，容易与作物或土壤混淆。"),
-        ("ignore_index=255", "无效区域不参与训练 loss 和指标计算，避免模型学习黑边或 no-data 区域。"),
-        ("epochs", "完整遍历训练集的轮数。真实 weed 学习较慢，需观察更多轮次。"),
-        ("class weights", "提高少数类错误对 loss 的贡献，缓解 background 占比过高造成的偏置。"),
-    ], widths=[4.0, 11.8], numeric_from=2, font_size=9)
+    section(doc, 6, "Boundary error analysis")
+    paragraph(doc, "对 SmallUNet + Weighted CE 的 20 epochs best checkpoint 分析 sample index=0，排除 label=255 后共 112158 个有效像素、5812 个错误像素。5px 边界区域含 38199 个有效像素，占有效像素 34.06%，却包含 5532 个错误，占全部错误 95.18%。")
+    table(doc, ["区域", "错误像素", "区域错误率"], [
+        ("5px 边界内", "5532", "14.48%"),
+        ("5px 边界外", "280", "0.38%"),
+    ], [7, 4.5, 5.5], 8.8)
+    paragraph(doc, "该单张样本表明错误集中在边界，因而尝试对边界像素增加损失权重；它不能单独代表整体验证集。")
 
-    add_heading(doc, "22 当前结论")
-    conclusions = [
-        "已经从 synthetic 实验推进到真实 UAV 多光谱语义分割数据。",
-        "光谱指数实验说明土壤与植被较容易区分，但 crop 和 weed 都属于植被，二者更难区分。",
-        "Synthetic 实验表明类别不平衡会导致模型忽视 weed。",
-        "Class weights 能显著提升 weed IoU。",
-        "真实 WeedMap 数据必须正确处理标签映射和 invalid/no-data mask。",
-        "真实 U-Net 训练已经跑通，loss 正常下降。",
-        "真实数据中 background 最容易，crop 次之，weed 最难。",
-        "10 epochs 相比 3 epochs 明显提升 weed IoU。",
-        "当前模型已具备初步区分作物、杂草、土壤或背景的能力，但 weed 仍有漏检与边界误差。",
-        "严格公平对比使用相同的 454 个样本；multispectral 的 mean IoU 和 weed IoU 高于 RGB，其中 weed IoU 高 12.17 个百分点。",
-        "Multispectral 的 10 epochs best checkpoint 位于 Epoch 8，mean IoU 为 70.38%、weed IoU 为 50.43%，优于最后一轮模型。",
-        "Weed class weight 调参中，权重 8 的 best mean IoU 和 weed IoU 最高；提高到 12 和 16 后指标下降。",
-        "20 epochs 的三个 seed 均在 Epoch 15 取得 best checkpoint；平均 Mean IoU 为 74.78% ± 0.82%，平均 Weed IoU 为 56.89% ± 2.06%。",
-        "在 Weighted CE、Focal Loss、Dice + CE 的多 seed 对比中，Weighted CE 的平均 mean IoU 和 weed IoU 最高；Dice + CE 的 seed 2 明显下降，稳定性仍需验证。",
-        "Boundary error analysis 显示，sample index=0 的 5px 边界区域占有效像素 34.06%，却包含 Weighted CE 的 95.18% 错误；U-Net 虽已有 skip connection，边界仍是主要难点。",
-        "Boundary weighted CE 将 sample index=0 的 5px 边界错误率从 14.48% 降至 9.50%。",
-        "Boundary weighted CE 是当前新的候选主结果：三 seed 平均 Mean IoU = 75.08% ± 1.10%，Weed IoU = 57.66% ± 1.58%；相对 Weighted CE 是小幅提升。",
-        "Multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint 继续作为稳定 baseline。",
-    ]
-    add_bullets(doc, conclusions, numbered=True)
-    add_heading(doc, "22.1 当前项目完成内容", level=2)
-    add_table(doc, ["阶段", "内容", "状态"], [
-        ("环境搭建", "Python、PyTorch、MPS、VS Code、Codex、GitHub", "完成"),
-        ("光谱基础", "NDVI/NDRE 模拟 crop/weed/soil", "完成"),
-        ("阈值 baseline", "NDVI/NDRE 规则分类", "完成"),
-        ("Synthetic segmentation", "crop/weed/background U-Net", "完成"),
-        ("Class imbalance", "CE vs weighted CE", "完成"),
-        ("Loss 对比", "CE / weighted CE / Dice / Focal", "完成"),
-        ("输入对比", "RGB vs multispectral synthetic", "完成"),
-        ("真实数据读取", "WeedMap Tiles 解压和结构检查", "完成"),
-        ("标签验证", "color / iMap / mask 映射验证", "完成"),
-        ("Dataset", "WeedMapDataset", "完成"),
-        ("真实训练", "multispectral weighted CE 3/10/20 epochs", "完成"),
-        ("真实输入对比", "RGB vs multispectral，使用相同 454 个样本", "严格公平对比完成"),
-        ("Best checkpoint", "按 val mean IoU 保存并验证最佳模型", "完成"),
-        ("Weed class weight 调参", "Multispectral 下比较 weed weight 8/12/16", "完成"),
-        ("20 epochs 多 seed", "Seed 0/1/2，均在 Epoch 15 取得最佳结果", "完成"),
-        ("真实 loss 多 seed 对比", "Weighted CE / Focal Loss / Dice + CE", "完成"),
-        ("Boundary error analysis", "Sample index=0 的 1/3/5px 边界错误统计", "完成"),
-        ("Boundary weighted CE", "Boundary radius 5、weight 3.0，Seed 0/1/2", "完成"),
-        ("预测可视化", "真实样本预测图和 error map", "完成"),
-    ], widths=[4.2, 9.4, 2.2], numeric_from=2, font_size=8.5)
+    section(doc, 7, "SmallUNet + boundary weighted CE r5_w4")
+    paragraph(doc, "在 SmallUNet baseline 上使用 boundary_weighted_ce，边界半径 5px、边界权重 4.0，类别权重仍为 1/4/8。common split、多光谱、20 epochs、batch size 2、三 seed 与 best checkpoint 规则保持一致。")
+    metrics(doc, [("SmallUNet + boundary CE r5_w4", "96.79% ± 0.16%", "75.17% ± 1.02%", "97.15% ± 0.11%", "70.07% ± 2.41%", "58.29% ± 0.92%")])
+    paragraph(doc, "相对 SmallUNet + Weighted CE，Mean IoU 提高 0.39 个百分点，Weed IoU 提高 1.40 个百分点；Crop IoU 均值下降 0.69 个百分点。sample index=0 的 5px 边界错误率由 14.48% 降至 9.50%，总错误像素由 5812 降至 3746。")
 
-    add_heading(doc, "23 下一步计划")
-    plans = [
-        "Boundary weighted CE 后续分析：测试 boundary weight 2.0 和 4.0，并生成预测对比图及 loss 对比曲线。",
-        "其他 loss 调参：尝试 CE + 0.5 Dice 或 CE + 2 Dice，并增加 seed 验证稳定性。",
-        "更长训练：可尝试 30 epochs，但继续根据验证集 mean IoU 使用 best checkpoint。",
-        "数据增强：加入 random flip、rotation、brightness/noise，提高对视角、光照与成像噪声的适应性。",
-        "迁移到导师实验田：面向水稻田和柑橘田的作物、杂草、土壤区分，按实际传感器与标签调整输入和预处理。",
-    ]
-    add_bullets(doc, plans, numbered=True)
+    section(doc, 8, "MobileNetV2ShallowUNet 方案 A")
+    paragraph(doc, "方案 A 是 MobileNetV2-style shallow encoder 改造实验，不是论文完整 MobileNetV2-U-Net 复现。它保留当前 SmallUNet 的 C1/C2、两级 Decoder、skip connection 和 segmentation head，以浅层 MobileNetV2-style inverted residual blocks B1-B6 替换原 enc2 与 bottleneck。完整 B1-B17 多尺度结构留作方案 B。")
+    paragraph(doc, "参数量由 SmallUNet 的 117363 降至 107155，减少约 8.7%。在相同 common split、多光谱、Weighted CE、20 epochs、batch size 2、三 seed 条件下：")
+    metrics(doc, [("方案 A + Weighted CE", "96.53% ± 0.47%", "75.86% ± 1.22%", "96.80% ± 0.44%", "71.74% ± 2.76%", "59.03% ± 1.74%")])
+    paragraph(doc, "与原 SmallUNet + Weighted CE 比较，Mean IoU 高 1.08 个百分点，Weed IoU 高 2.14 个百分点。")
 
-    add_heading(doc, "24 给导师汇报时可以说的话")
-    speech = (
-        "老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期实验确认类别不平衡会使模型忽视 weed，加入 class weights 后 weed IoU 明显提升。真实数据实验中，我完成了标签映射与无效区域处理，并在相同 454 个样本上进行了严格公平的 RGB 与 multispectral 对比。Multispectral 的 mean IoU 和 weed IoU 更高，其中 weed IoU 比 RGB 高 12.17 个百分点。随后验证了 best checkpoint 的必要性，并比较 weed weight 8、12、16，结果显示 1/4/8 的类别权重最好。使用这一设置训练 20 epochs 后，三个 seed 均在 Epoch 15 取得 best checkpoint。进一步比较 Weighted CE、Focal Loss 和 Dice + CE 的多 seed 结果，Weighted CE 在这三种 loss 中的平均 mean IoU 和 weed IoU 最高。预测图显示 crop/weed 错误集中在边界；虽然 U-Net 已有 skip connection，边界仍是主要难点。Sample index=0 的 5px 边界区域包含 Weighted CE 的 95.18% 错误，因此尝试 boundary weighted CE。该样本边界错误率从 14.48% 降至 9.50%；三 seed 平均 Mean IoU 从 74.78% 小幅升至 75.08% ± 1.10%，Weed IoU 从 56.89% 升至 57.66% ± 1.58%。目前将 boundary weighted CE 作为候选主结果，保留 Weighted CE 作为稳定 baseline，并继续测试不同 boundary weight。"
-    )
-    p = add_paragraph(doc, speech, indent=False)
-    p.paragraph_format.left_indent = Cm(0.8)
-    p.paragraph_format.right_indent = Cm(0.8)
-    p.paragraph_format.line_spacing = 1.5
+    section(doc, 9, "MobileNetV2ShallowUNet + boundary weighted CE r5_w4")
+    paragraph(doc, "当前最强语义分割设置：WeedMap common split；multispectral；MobileNetV2ShallowUNet 方案 A；boundary_weighted_ce；boundary radius=5、boundary weight=4.0；类别权重 background=1.0、crop=4.0、weed=8.0；20 epochs、batch size=2、seed=0/1/2；每个 seed 按验证集 Mean IoU 选择 best checkpoint。")
+    table(doc, ["Seed", "Best epoch", "Pixel Acc", "Mean IoU", "Background IoU", "Crop IoU", "Weed IoU"], [
+        ("0", "20", "96.91%", "76.97%", "97.20%", "73.41%", "60.30%"),
+        ("1", "12", "96.78%", "76.08%", "97.15%", "71.02%", "60.07%"),
+        ("2", "18", "97.25%", "77.07%", "97.44%", "74.69%", "59.10%"),
+        ("均值 ± 标准差", "—", "96.98% ± 0.24%", "76.71% ± 0.55%", "97.26% ± 0.16%", "73.04% ± 1.86%", "59.82% ± 0.64%"),
+    ], [2.5, 2, 2.35, 2.35, 2.8, 2.5, 2.5], 7.4)
+    doc.add_heading("与前序主线对比", level=2)
+    metrics(doc, [
+        ("SmallUNet + Weighted CE", "96.38% ± 0.36%", "74.78% ± 0.82%", "96.70% ± 0.43%", "70.76% ± 1.11%", "56.89% ± 2.06%"),
+        ("SmallUNet + boundary CE r5_w4", "96.79% ± 0.16%", "75.17% ± 1.02%", "97.15% ± 0.11%", "70.07% ± 2.41%", "58.29% ± 0.92%"),
+        ("方案 A + Weighted CE", "96.53% ± 0.47%", "75.86% ± 1.22%", "96.80% ± 0.44%", "71.74% ± 2.76%", "59.03% ± 1.74%"),
+        ("方案 A + boundary CE r5_w4", "96.98% ± 0.24%", "76.71% ± 0.55%", "97.26% ± 0.16%", "73.04% ± 1.86%", "59.82% ± 0.64%"),
+    ], 7.4)
+    paragraph(doc, "相对原 SmallUNet + Weighted CE baseline 的均值提升（百分点）：Pixel Accuracy +0.60、Mean IoU +1.93、Background IoU +0.56、Crop IoU +2.28、Weed IoU +2.93。结果表明方案 A 的浅层 encoder 改造与 boundary weighted CE 在当前实验中可以叠加提升。")
 
-    doc.save(OUTPUT_DOCX)
+    section(doc, 10, "VCR 植被覆盖率评判指标")
+    paragraph(doc, "VCR = vegetation pixels / valid pixels。其中 vegetation pixels 指 NDVI > 0.2 且 label != 255 的像素；valid pixels 指 label != 255 的像素。VCR 用于场景划分，不参与分割模型训练或 IoU 计算。")
+    table(doc, ["场景", "初始 VCR 阈值", "样本数", "比例"], [
+        ("sparse", "VCR < 0.20", "13 / 454", "≈ 2.86%"),
+        ("transition", "0.20 ≤ VCR ≤ 0.30", "9 / 454", "≈ 1.98%"),
+        ("dense", "VCR > 0.30", "432 / 454", "≈ 95.15%"),
+    ], [3.5, 6, 3.5, 4], 8.8)
+    paragraph(doc, "WeedMap common split 的 454 张样本中，VCR 均值 0.7928、中位数 0.9116、最小值 0.0000、最大值 0.9999。绝大多数样本为高植被覆盖场景。0.20 和 0.30 是初始经验阈值，后续需结合人工样本检查与实际除草需求调整。")
 
+    section(doc, 11, "YOLO / U-Net 路线选择标准")
+    paragraph(doc, "无人机多光谱图像 → NDVI / 植物-土壤区分指标 → 计算 VCR → 判断 sparse / transition / dense → 选择定位或区域分割路线。")
+    table(doc, ["VCR 场景", "候选路线", "除草用途"], [
+        ("sparse", "YOLO", "单株或单簇定位，点状精准除草"),
+        ("transition", "同时测试 YOLO 与 U-Net，或人工确认", "根据目标形态与作业要求选择"),
+        ("dense", "U-Net / MobileNetV2ShallowUNet", "输出区域 mask，支持区域除草"),
+    ], [3, 6.8, 7.2], 8.6)
+    paragraph(doc, "common split 中 dense 占约 95.15%，因此当前阶段以 U-Net / MobileNetV2ShallowUNet 语义分割为主路线有数据依据。YOLO 适合作为低覆盖稀疏场景的候选路线或后续扩展；目前仅完成 smoke test，尚无与 U-Net 在相同条件下的正式效果对比。")
 
-def main() -> None:
-    copy_assets()
-    curve_generated = generate_training_curve()
-    build_document(curve_generated)
-    print(f"Generated: {OUTPUT_DOCX}")
-    print(f"Assets: {ASSETS_DIR}")
+    section(doc, 12, "给老师汇报用总结")
+    paragraph(doc, "老师，目前我已经完成从模拟数据到真实 WeedMap 多光谱无人机数据的语义分割流程。前期用 NDVI、NDRE 模拟作物、杂草和土壤的光谱差异，并在 synthetic 数据上训练 U-Net。普通 CE 容易忽视 weed，加入 class weights 后 Weed IoU 大幅提升。随后我整理真实 WeedMap Tiles，验证标签映射；本地 GroundTruth_color 的语义最清楚，因此 Dataset 由它生成 0/1/2 标签，mask=255 作为 ignore 区域。严格公平的 RGB 与多光谱对比使用相同的 454 个样本，其中训练 363 个、验证 91 个。多光谱的 Mean IoU 和 Weed IoU 均高于 RGB，说明额外光谱通道对杂草识别有帮助。")
+    paragraph(doc, "真实数据中，Weighted CE 是稳定的基础 loss。分析 sample index=0 后发现，5px 边界区域包含 Weighted CE 的 95.18% 错误，因此加入 boundary weighted CE。SmallUNet 的 r5_w4 三 seed 平均 Mean IoU 达到 75.17%，Weed IoU 达到 58.29%。接着实现 MobileNetV2ShallowUNet 方案 A：这是浅层 MobileNetV2-style encoder 改造，保留当前两级 U-Net decoder，并非论文完整 MobileNetV2-U-Net 复现。方案 A 单用 Weighted CE 已优于原 SmallUNet；与 boundary weighted CE r5_w4 结合后，三 seed 平均 Mean IoU 为 76.71% ± 0.55%，Weed IoU 为 59.82% ± 0.64%，是目前最好的语义分割结果。")
+    paragraph(doc, "我还新增了植被覆盖率 VCR 作为模型路线选择指标，通过 NDVI 区分植物与土壤并计算每张图的覆盖率。WeedMap common split 中 dense 样本占 95.15%，说明当前数据以高植被覆盖场景为主，继续优化 U-Net / MobileNetV2ShallowUNet 语义分割是合理的；YOLO 更适合作为低覆盖稀疏场景的补充路线，用于单株或单簇定位与点状精准除草。VCR 阈值仍需结合人工检查和实际作业需求校准。")
+
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(OUTPUT)
+    print(f"Updated {OUTPUT}")
 
 
 if __name__ == "__main__":
-    main()
+    build()
