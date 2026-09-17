@@ -1,7 +1,7 @@
 # 基于无人机多光谱影像的作物、杂草、土壤/背景区分实验进度报告
 
 **项目：** cv-weedmap-segmentation  
-**当前阶段：** Synthetic 模拟实验完成，真实 WeedMap 数据读取、标签验证、Dataset 构建、U-Net 训练、严格公平 RGB vs multispectral 对比、weed class weight 调参及 20 epochs multispectral 实验完成
+**当前阶段：** Synthetic 模拟实验完成，真实 WeedMap 数据读取、标签验证、Dataset 构建、U-Net 训练、严格公平 RGB vs multispectral 对比、weed class weight 调参、20 epochs multispectral 实验及 boundary weighted CE 对比完成
 
 ---
 
@@ -506,7 +506,86 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 
 Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU 也最高，为 56.89% ± 2.06%。Focal Loss 的 background IoU 较高，weed IoU 的跨 seed 波动也较小，但平均 weed IoU 略低于 Weighted CE。Dice + CE 在 seed=0 和 seed=1 上表现很强，seed=2 的 mean IoU 和 weed IoU 明显下降，因此样本标准差较大。当前阶段最稳的主 baseline 仍是 `multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint`。Dice + CE 有后续探索价值，需要进一步调参或增加 seed 验证稳定性。
 
-## 22. 真实预测可视化与误差分析
+## 22. Boundary error analysis 与 boundary weighted CE
+
+### 问题观察与结构检查
+
+预测可视化显示，错误主要集中在 crop/weed 轮廓附近，Error map 中有许多白色边界圈。检查当前 `unet.py`：模型已有 encoder-decoder skip connection，使用 `torch.cat(..., dim=1)` 进行 concat，而非 add。因此问题并非缺少 skip connection，而是当前普通 U-Net 的边界精细化能力仍然不足。
+
+### Boundary error analysis：Weighted CE 20 epochs best，sample index=0
+
+| 统计项 | 结果 |
+|---|---:|
+| Total valid pixels | 112158 |
+| Total error pixels | 5812 |
+| Overall error rate | 5.18% |
+| Errors within 1px boundary | 4504（占错误 77.49%） |
+| Errors within 3px boundary | 5372（占错误 92.43%） |
+| Errors within 5px boundary | 5532（占错误 95.18%） |
+| Errors outside 5px boundary | 280（占错误 4.82%） |
+| Valid pixels within 5px boundary | 38199（占有效像素 34.06%） |
+| Error rate within 5px boundary | 14.48% |
+| Error rate outside 5px boundary | 0.38% |
+
+5px 边界区域仅占有效像素的 34.06%，却包含 95.18% 的错误像素；该区域错误率为 14.48%，远高于非边界区域的 0.38%。当前模型的主要瓶颈集中在边界区域，而非大面积内部区域。
+
+### Boundary weighted CE 实验设置与三 seed 结果
+
+- `loss=boundary_weighted_ce`，`boundary radius=5`，`boundary weight=3.0`；
+- `input_type=multispectral`，`epochs=20`，`batch_size=2`；
+- `sample_list_csv=splits/real_weedmap_common_samples.csv`；
+- 使用 best checkpoint。
+
+| Seed | Best Epoch | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 20 | 96.71% | 75.95% | 97.10% | 71.66% | 59.09% |
+| 1 | 16 | 96.73% | 73.84% | 97.15% | 68.42% | 55.97% |
+| 2 | 18 | 97.04% | 75.43% | 97.33% | 71.06% | 57.92% |
+
+三 seed 均值 ± 样本标准差：
+
+| Metric | Mean ± Std |
+|---|---:|
+| Pixel Accuracy | 96.83% ± 0.19% |
+| Mean IoU | 75.08% ± 1.10% |
+| Background IoU | 97.19% ± 0.12% |
+| Crop IoU | 70.38% ± 1.73% |
+| Weed IoU | 57.66% ± 1.58% |
+
+与原 Weighted CE 的三 seed 结果对比（均值 ± 样本标准差）：
+
+| Loss | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|
+| Weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
+| Boundary weighted CE | 96.83% ± 0.19% | 75.08% ± 1.10% | 97.19% ± 0.12% | 70.38% ± 1.73% | 57.66% ± 1.58% |
+
+### Sample index=0 的预测与边界错误对比
+
+| Model | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|
+| Weighted CE 20 epochs best | 94.82% | 63.90% | 95.32% | 59.39% | 36.99% |
+| Boundary weighted CE | 96.66% | 68.86% | 97.34% | 66.02% | 43.22% |
+
+Boundary weighted CE 后的 sample index=0 边界错误统计：
+
+| 统计项 | 结果 |
+|---|---:|
+| Total valid pixels | 112158 |
+| Total error pixels | 3746 |
+| Overall error rate | 3.34% |
+| Errors within 1px boundary | 3155（占错误 84.22%） |
+| Errors within 3px boundary | 3580（占错误 95.57%） |
+| Errors within 5px boundary | 3630（占错误 96.90%） |
+| Errors outside 5px boundary | 116（占错误 3.10%） |
+| Valid pixels within 5px boundary | 38199（占有效像素 34.06%） |
+| Error rate within 5px boundary | 9.50% |
+| Error rate outside 5px boundary | 0.16% |
+
+Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 从 5.18% 降至 3.34%；5px boundary error rate 从 14.48% 降至 9.50%，outside 5px error rate 从 0.38% 降至 0.16%。绝对错误数表明 boundary-aware loss 减少了边界附近错误；剩余错误的边界占比仍高，说明边界仍是后续优化重点。
+
+阶段性结论：boundary weighted CE 是当前新的最好方向。三 seed 的 mean IoU 从 74.78% 小幅升至 75.08%，weed IoU 从 56.89% 升至 57.66%，可作为新的候选主结果；继续保留 Weighted CE 作为稳定 baseline。
+
+## 23. 真实预测可视化与误差分析
 
 ### 3 epochs
 
@@ -536,7 +615,7 @@ Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU �
 
 单样本指标低于整体验证集的最终指标并不矛盾，说明不同样本难度存在差异。整体上，**真实农业遥感中的 weed 具有面积小、分布散、外观与作物相近等特点，是当前最难类别之一。**
 
-## 23. 评价指标解释
+## 24. 评价指标解释
 
 1. **Pixel Accuracy**：所有有效像素中预测正确的比例。若背景占比很大，即使 weed 预测较差，accuracy 仍可能很高。
 2. **IoU**：`intersection / union`，分别计算某一类别预测区域与真实区域的交集占并集的比例。
@@ -544,7 +623,7 @@ Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU �
 4. **Weed IoU**：本项目最重要的指标之一。导师课题中的杂草识别是关键难点，weed 通常面积小、分布零散，并容易与作物或土壤混淆。
 5. **ignore_index=255**：无效区域不参与训练 loss 和指标计算，避免模型学习无意义的黑边或 no-data 区域。
 
-## 24. 当前阶段主要结论
+## 25. 当前阶段主要结论
 
 1. 已从传统 CV / synthetic 实验推进到真实 UAV 多光谱语义分割数据。
 2. 光谱指数实验说明土壤与植被较容易区分，但 crop 与 weed 均属于植被，二者更难区分。
@@ -561,9 +640,10 @@ Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU �
 13. 当前可将 `multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint` 作为后续 baseline。
 14. 20 epochs 的三个 seed 均在 Epoch 15 取得 best checkpoint，mean IoU 为 73.88%～75.47%，weed IoU 均超过 54%；多 seed 平均 mean IoU 为 74.78% ± 0.82%，weed IoU 为 56.89% ± 2.06%。
 15. Loss 多 seed 对比中，Weighted CE 的平均 mean IoU（74.78% ± 0.82%）和 weed IoU（56.89% ± 2.06%）均最高；Dice + CE 的 seed=2 明显下降，稳定性仍需验证。
-16. 目前真实 WeedMap 实验最推荐报告 Weighted CE 的三 seed 平均结果：Pixel Accuracy = 96.38% ± 0.36%，Mean IoU = 74.78% ± 0.82%，Weed IoU = 56.89% ± 2.06%（均值 ± 样本标准差）。Epoch 20 指标回落也进一步说明 best checkpoint 必不可少。
+16. Boundary error analysis 显示，sample index=0 中 5px 边界区域占有效像素 34.06%，却包含 Weighted CE 的 95.18% 错误；boundary weighted CE 将该样本边界错误率从 14.48% 降至 9.50%。
+17. Boundary weighted CE 是新的候选主结果，三 seed 平均 Pixel Accuracy = 96.83% ± 0.19%、Mean IoU = 75.08% ± 1.10%、Weed IoU = 57.66% ± 1.58%。相比 Weighted CE 是小幅提升；Weighted CE 保留为稳定 baseline。
 
-## 25. 当前项目已完成内容
+## 26. 当前项目已完成内容
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
@@ -584,11 +664,15 @@ Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU �
 | 20 epochs 训练 | Multispectral weighted CE，Epoch 15 best mean IoU 73.88% | 完成 |
 | 20 epochs 多 seed 重复 | Seed 0/1/2，best mean IoU 均位于 Epoch 15；mean IoU 74.78% ± 0.82% | 完成 |
 | 真实 WeedMap loss 多 seed 对比 | Weighted CE / Focal Loss / Dice + CE，均使用 Seed 0/1/2 和 best checkpoint | 完成 |
+| Boundary error analysis | Sample index=0 的 1/3/5px 边界错误统计及两种 loss 对比 | 完成 |
+| Boundary weighted CE | Boundary radius 5、weight 3.0，Seed 0/1/2，使用 best checkpoint | 完成 |
 | 预测可视化 | 真实样本预测图和 error map | 完成 |
 
-## 26. 下一步实验计划
+## 27. 下一步实验计划
 
 1. **Loss 后续分析与调参**
+   - 继续测试 `boundary_weighted_ce` 的 boundary weight 2.0、4.0；
+   - 生成 boundary weighted CE 的预测对比图；
    - 生成 loss 对比曲线图；
    - 可尝试 Dice + CE 的权重系数调节，例如 `CE + 0.5 Dice` 或 `CE + 2 Dice`，并增加 seed 验证稳定性。
 2. **更长训练**
@@ -601,8 +685,8 @@ Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU �
    - 柑橘田：柑橘/杂草/土壤；
    - 根据真实传感器通道和数据质量调整输入与预处理。
 5. **导师提交材料**
-   - 后续需要给导师提交时再重新生成 docx。
+   - 后续更新 Word 报告给导师。
 
-## 27. 给导师汇报时可以说的话
+## 28. 给导师汇报时可以说的话
 
-老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我整理了真实 WeedMap Tiles 数据并完成标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。严格公平的 RGB 与 multispectral 对比使用相同的 454 个样本，其中 train 363 个、val 91 个。Multispectral 的 mean IoU 为 67.76%，高于 RGB 的 65.27%；weed IoU 为 46.73%，也明显高于 RGB 的 34.56%，说明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 略高，说明 RGB 对作物行状结构也有一定优势。由于 weed 是课题的关键难点，多光谱方向更值得深入。继续在 multispectral 上比较 weed weight 8、12 和 16 后，权重 8 的结果最好。使用该权重训练 20 epochs，并以验证集 mean IoU 选择 best checkpoint 后，三个 seed 的最佳轮次均为 Epoch 15。进一步比较 Weighted CE、Focal Loss 和 Dice + CE 的三个 seed 结果后，Weighted CE 的平均 mean IoU 和 weed IoU 最高，Dice + CE 在 seed=2 上下降较明显。后续以 Weighted CE 的三 seed 平均结果作为主要报告结果：Pixel Accuracy = 96.38% ± 0.36%，Mean IoU = 74.78% ± 0.82%，Weed IoU = 56.89% ± 2.06%（均值 ± 样本标准差）；还会生成 loss 对比曲线图，探索 Dice + CE 的权重系数，并可在使用 best checkpoint 的前提下尝试 30 epochs。
+老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我整理了真实 WeedMap Tiles 数据并完成标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。严格公平的 RGB 与 multispectral 对比使用相同的 454 个样本，其中 train 363 个、val 91 个。Multispectral 的 mean IoU 为 67.76%，高于 RGB 的 65.27%；weed IoU 为 46.73%，也明显高于 RGB 的 34.56%，说明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 略高，说明 RGB 对作物行状结构也有一定优势。由于 weed 是课题的关键难点，多光谱方向更值得深入。继续在 multispectral 上比较 weed weight 8、12 和 16 后，权重 8 的结果最好。使用该权重训练 20 epochs，并以验证集 mean IoU 选择 best checkpoint 后，三个 seed 的最佳轮次均为 Epoch 15。比较 Weighted CE、Focal Loss 和 Dice + CE 的三个 seed 结果后，Weighted CE 在这三种 loss 中的平均 mean IoU 和 weed IoU 最高。进一步分析 sample index=0，发现 5px 边界区域包含 Weighted CE 的 95.18% 错误。采用 boundary weighted CE 后，该样本的边界错误率从 14.48% 降至 9.50%；三 seed 平均 Mean IoU 从 74.78% 小幅升至 75.08%，Weed IoU 从 56.89% 升至 57.66%。目前将 boundary weighted CE 作为候选主结果，保留 Weighted CE 作为稳定 baseline；下一步测试不同 boundary weight，生成预测对比图，并更新 Word 报告。

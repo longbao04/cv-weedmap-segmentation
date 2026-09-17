@@ -300,15 +300,94 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 
 Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU 也最高，为 56.89% ± 2.06%。Focal Loss 的 background IoU 较高，weed IoU 的跨 seed 波动也较小，但平均 weed IoU 略低于 Weighted CE。Dice + CE 在 seed=0 和 seed=1 上表现很强，seed=2 的 mean IoU 和 weed IoU 明显下降，因此样本标准差较大。当前阶段最稳的主 baseline 仍是 `multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint`。Dice + CE 有后续探索价值，需要进一步调参或增加 seed 验证稳定性。
 
+## Boundary error analysis 与 boundary weighted CE
+
+### 问题观察与结构检查
+
+预测可视化显示，错误主要集中在 crop/weed 轮廓附近，Error map 中有许多白色边界圈。检查当前 `unet.py`：模型已有 encoder-decoder skip connection，使用 `torch.cat(..., dim=1)` 进行 concat，而非 add。因此问题并非缺少 skip connection，而是当前普通 U-Net 的边界精细化能力仍然不足。
+
+### Boundary error analysis：Weighted CE 20 epochs best，sample index=0
+
+| 统计项 | 结果 |
+|---|---:|
+| Total valid pixels | 112158 |
+| Total error pixels | 5812 |
+| Overall error rate | 5.18% |
+| Errors within 1px boundary | 4504（占错误 77.49%） |
+| Errors within 3px boundary | 5372（占错误 92.43%） |
+| Errors within 5px boundary | 5532（占错误 95.18%） |
+| Errors outside 5px boundary | 280（占错误 4.82%） |
+| Valid pixels within 5px boundary | 38199（占有效像素 34.06%） |
+| Error rate within 5px boundary | 14.48% |
+| Error rate outside 5px boundary | 0.38% |
+
+5px 边界区域仅占有效像素的 34.06%，却包含 95.18% 的错误像素；该区域错误率为 14.48%，远高于非边界区域的 0.38%。当前模型的主要瓶颈集中在边界区域，而非大面积内部区域。
+
+### Boundary weighted CE 实验设置与三 seed 结果
+
+- `loss=boundary_weighted_ce`，`boundary radius=5`，`boundary weight=3.0`；
+- `input_type=multispectral`，`epochs=20`，`batch_size=2`；
+- `sample_list_csv=splits/real_weedmap_common_samples.csv`；
+- 使用 best checkpoint。
+
+| Seed | Best Epoch | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 20 | 96.71% | 75.95% | 97.10% | 71.66% | 59.09% |
+| 1 | 16 | 96.73% | 73.84% | 97.15% | 68.42% | 55.97% |
+| 2 | 18 | 97.04% | 75.43% | 97.33% | 71.06% | 57.92% |
+
+三 seed 均值 ± 样本标准差：
+
+| Metric | Mean ± Std |
+|---|---:|
+| Pixel Accuracy | 96.83% ± 0.19% |
+| Mean IoU | 75.08% ± 1.10% |
+| Background IoU | 97.19% ± 0.12% |
+| Crop IoU | 70.38% ± 1.73% |
+| Weed IoU | 57.66% ± 1.58% |
+
+与原 Weighted CE 的三 seed 结果对比（均值 ± 样本标准差）：
+
+| Loss | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|
+| Weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
+| Boundary weighted CE | 96.83% ± 0.19% | 75.08% ± 1.10% | 97.19% ± 0.12% | 70.38% ± 1.73% | 57.66% ± 1.58% |
+
+### Sample index=0 的预测与边界错误对比
+
+| Model | Pixel Acc | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+|---|---:|---:|---:|---:|---:|
+| Weighted CE 20 epochs best | 94.82% | 63.90% | 95.32% | 59.39% | 36.99% |
+| Boundary weighted CE | 96.66% | 68.86% | 97.34% | 66.02% | 43.22% |
+
+Boundary weighted CE 后的 sample index=0 边界错误统计：
+
+| 统计项 | 结果 |
+|---|---:|
+| Total valid pixels | 112158 |
+| Total error pixels | 3746 |
+| Overall error rate | 3.34% |
+| Errors within 1px boundary | 3155（占错误 84.22%） |
+| Errors within 3px boundary | 3580（占错误 95.57%） |
+| Errors within 5px boundary | 3630（占错误 96.90%） |
+| Errors outside 5px boundary | 116（占错误 3.10%） |
+| Valid pixels within 5px boundary | 38199（占有效像素 34.06%） |
+| Error rate within 5px boundary | 9.50% |
+| Error rate outside 5px boundary | 0.16% |
+
+Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 从 5.18% 降至 3.34%；5px boundary error rate 从 14.48% 降至 9.50%，outside 5px error rate 从 0.38% 降至 0.16%。绝对错误数表明 boundary-aware loss 减少了边界附近错误；剩余错误的边界占比仍高，说明边界仍是后续优化重点。
+
+阶段性结论：boundary weighted CE 是当前新的最好方向。三 seed 的 mean IoU 从 74.78% 小幅升至 75.08%，weed IoU 从 56.89% 升至 57.66%，可作为新的候选主结果；继续保留 Weighted CE 作为稳定 baseline。
+
 ## 阶段性结论
 
-目前真实 WeedMap 实验最推荐报告 Weighted CE 的三 seed 平均结果（均值 ± 样本标准差）：Pixel Accuracy = 96.38% ± 0.36%，Mean IoU = 74.78% ± 0.82%，Weed IoU = 56.89% ± 2.06%。
+目前可将 boundary weighted CE 作为新的候选主结果（三 seed 均值 ± 样本标准差）：Pixel Accuracy = 96.83% ± 0.19%，Mean IoU = 75.08% ± 1.10%，Weed IoU = 57.66% ± 1.58%。提升幅度较小；Weighted CE 仍是稳定 baseline。
 
 ## 下一步计划
 
-- 由于 boundary error analysis 显示 sample0 中 95.18% 的错误集中在 5px 边界范围内，后续尝试 `boundary_weighted_ce` 来强化边界区域学习。
-- 后续将比较普通 weighted CE 与 boundary weighted CE 的边界错误统计。
+- 继续测试 `boundary_weighted_ce` 的不同 boundary weight，例如 2.0、4.0。
+- 生成 boundary weighted CE 的预测对比图。
 - 后续可用 `python plot_real_loss_comparison.py` 生成真实 WeedMap loss 对比曲线图。
 - 可尝试调节 Dice + CE 的权重系数，例如 `CE + 0.5 Dice` 或 `CE + 2 Dice`，并增加 seed 验证稳定性。
 - 可尝试 30 epochs，但必须继续根据 val mean IoU 使用 best checkpoint；
-- 后续需要给导师提交时再重新生成 docx。
+- 后续更新 Word 报告给导师。
