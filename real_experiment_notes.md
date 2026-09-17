@@ -433,3 +433,5 @@ Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 
 下一步保留 **U-Net / boundary-aware U-Net** 像素级分割路线，用于杂草区域和施药区域估计；增加 **YOLO 系列**作为稀疏作物/杂草目标定位、实时识别和计数的对照路线。尚未完成 YOLO 训练与同数据对比，因此当前结果仅提示其值得验证，不能据此否定 U-Net 或声称 YOLO 更优。
 
 参考上述水稻杂草识别论文的思路，密集、片状杂草优先考虑语义分割，稀疏、点状杂草可验证目标检测。因此新增 YOLO detect baseline 的数据准备脚本 `prepare_yolo_detection_dataset.py`：使用共享样本列表及 seed=0 的 U-Net 划分，将有效 crop/weed 像素的连通区域转为检测框，供后续对照实验使用。当前仅新增数据转换流程，尚无 YOLO 训练或检测结果。
+
+在训练 YOLO 前，需要先可视化由 mask 转换得到的 bbox 标签，确认目标框是否合理。可运行 `python visualize_yolo_detection_labels.py` 查看默认样本的 crop/weed 框。

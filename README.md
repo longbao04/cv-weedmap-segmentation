@@ -50,6 +50,7 @@ cv-weedmap-segmentation/
 ├── visualize_sample_placeholder.py
 ├── visualize_real_weedmap_sample.py
 ├── visualize_real_weedmap_prediction.py
+├── visualize_yolo_detection_labels.py
 ├── weedmap_dataset.py
 ├── synthetic_dataset.py
 ├── unet.py
@@ -123,6 +124,14 @@ python prepare_yolo_detection_dataset.py
 ```
 
 脚本读取同一份共享样本列表，按 U-Net 的 seed=0 和 80/20 规则划分（当前为 train 363 张、val 91 张），直接复制原始 RGB 图到 `data/yolo_weedmap_detect/images/{train,val}`，并在 `labels/{train,val}` 写出对应标签和空目标图片的空 `.txt`。类别为 `0=crop`、`1=weed`，不输出 background；默认只保留面积至少 20 像素的八连通区域。相接的植株可能合并为一个框，因此这些框表示连通区域，不保证对应单株。`data.yaml` 写在输出目录。可用 `--data-root`、`--sample-list-csv`、`--output-dir`、`--seed`、`--min-area` 调整；输出目录须为空。此步骤仅准备检测数据，不训练模型。
+
+训练 YOLO 前，先检查转换后的检测框：
+
+```bash
+python visualize_yolo_detection_labels.py
+```
+
+默认在 `RedEdge_004_frame0070` 的 RGB 图上以绿色绘制 crop 框、红色绘制 weed 框，保存到 `outputs/yolo_label_visualization_RedEdge_004_frame0070.png`。可用 `--dataset-dir`、`--split`、`--sample-name` 和 `--output` 指定其他样本及输出路径。
 
 ## 训练真实 WeedMap U-Net
 
