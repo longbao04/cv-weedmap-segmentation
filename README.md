@@ -114,6 +114,16 @@ python build_common_sample_list.py
 
 脚本扫描 8 个真实数据子集，只保留 RGB、G/R/RE/NIR/NDVI、彩色标签和 mask 均存在，且两种输入非全黑、标签含有效 crop/weed 前景的样本。结果保存到自动创建的 `splits/real_weedmap_common_samples.csv`，字段为 `sensor,subset_id,sample_id`；终端打印总数、各子集数量及 crop/weed 像素统计。可用 `--data-root` 和 `--output` 指定路径。
 
+## YOLO detect baseline 数据准备
+
+本项目新增 YOLO detect baseline，用于稀疏 crop/weed 目标检测，与 U-Net 语义分割路线互补。先运行 `prepare_yolo_detection_dataset.py`，把像素标签的连通区域转换为 YOLO bbox 标签：
+
+```bash
+python prepare_yolo_detection_dataset.py
+```
+
+脚本读取同一份共享样本列表，按 U-Net 的 seed=0 和 80/20 规则划分（当前为 train 363 张、val 91 张），直接复制原始 RGB 图到 `data/yolo_weedmap_detect/images/{train,val}`，并在 `labels/{train,val}` 写出对应标签和空目标图片的空 `.txt`。类别为 `0=crop`、`1=weed`，不输出 background；默认只保留面积至少 20 像素的八连通区域。相接的植株可能合并为一个框，因此这些框表示连通区域，不保证对应单株。`data.yaml` 写在输出目录。可用 `--data-root`、`--sample-list-csv`、`--output-dir`、`--seed`、`--min-area` 调整；输出目录须为空。此步骤仅准备检测数据，不训练模型。
+
 ## 训练真实 WeedMap U-Net
 
 使用本地真实 WeedMap 数据、现有 `WeedMapDataset` 和 `SmallUNet` 训练三分类模型：

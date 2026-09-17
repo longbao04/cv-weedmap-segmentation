@@ -719,3 +719,21 @@ Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 
 ## 28. 给导师汇报时可以说的话
 
 老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我整理了真实 WeedMap Tiles 数据并完成标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。严格公平的 RGB 与 multispectral 对比使用相同的 454 个样本，其中 train 363 个、val 91 个。Multispectral 的 mean IoU 为 67.76%，高于 RGB 的 65.27%；weed IoU 为 46.73%，也明显高于 RGB 的 34.56%，说明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 略高，说明 RGB 对作物行状结构也有一定优势。由于 weed 是课题的关键难点，多光谱方向更值得深入。继续在 multispectral 上比较 weed weight 8、12 和 16 后，权重 8 的结果最好。使用该权重训练 20 epochs，并以验证集 mean IoU 选择 best checkpoint 后，三个 seed 的最佳轮次均为 Epoch 15。比较 Weighted CE、Focal Loss 和 Dice + CE 的三个 seed 结果后，Weighted CE 在这三种 loss 中的平均 mean IoU 和 weed IoU 最高。进一步分析 sample index=0，发现 5px 边界区域包含 Weighted CE 的 95.18% 错误。采用 boundary weighted CE 后，该样本的边界错误率从 14.48% 降至 9.50%；三 seed 平均 Mean IoU 从 74.78% 小幅升至 75.08%，Weed IoU 从 56.89% 升至 57.66%。进一步将 boundary weight 从 3.0 调至 4.0 后，三 seed 平均 Mean IoU 从 75.08% 小幅升至 75.17%，Weed IoU 从 57.66% 升至 58.29%，Weed IoU 的样本标准差从 1.58 降至 0.92 个百分点。目前将 r5_w4 作为候选主结果，保留 Weighted CE 作为稳定 baseline；后续生成预测对比图，并更新 Word 报告。
+
+## 语义分割与目标检测路线选择分析
+
+参考《基于深度学习的无人机低空遥感水稻杂草实时识别研究》的低空遥感实时识别思路，以及[相关水稻杂草语义分割研究](https://www.mdpi.com/2072-4292/13/21/4370)，本项目应根据田间生长状态和最终输出选择技术路线。语义分割与目标检测各有适用场景，不能笼统判断哪一种绝对更好。以下阶段判断是结合田间目标形态与本项目任务提出的路线分析，不是当前 WeedMap 实验对两类模型的直接比较。
+
+| 田间状态 | 图像特点 | 更适合优先验证的路线 | 主要输出 |
+| --- | --- | --- | --- |
+| 分蘖期 | 作物与杂草密集、交叠并呈片状分布，单株或单簇边界难以辨认 | 语义分割 | 杂草像素区域、覆盖范围和施药区域估计 |
+| 苗期 | 作物间距较大，杂草分布较稀疏，点状目标较明显 | YOLO 系列目标检测 | 单个或单簇杂草的定位与计数 |
+
+当前 WeedMap 实验已证明 U-Net 可以完成 background、crop、weed 三类像素级分割。预测可视化与边界误差分析显示，错误主要集中在作物/杂草边界、零散小目标及植物混杂区域；boundary weighted CE 也带来了小幅改善。因此，合适的表述是：**普通 U-Net 在稀疏、小目标、边界破碎的场景下存在局限**，而不是断言 U-Net 不适合杂草识别。
+
+后续可保留两条互补路线：
+
+1. **U-Net / boundary-aware U-Net**：继续优化像素级杂草区域分割，用于估计杂草覆盖范围与施药区域。
+2. **YOLO 系列**：作为下一步对照实验，重点评估稀疏作物/杂草场景中的目标定位、实时性与计数能力。
+
+目前尚未在相同 WeedMap 数据与划分上完成 YOLO 对照，也没有目标检测结果。现有实验只提示 YOLO 值得作为下一步方向，不能据此认定 YOLO 整体优于 U-Net，更不能直接否定已经有效的 U-Net 分割路线。
