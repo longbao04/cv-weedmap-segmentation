@@ -156,6 +156,14 @@ python analyze_boundary_errors.py
 
 脚本默认使用 20 epochs best checkpoint、共同样本列表中的第 0 张 multispectral 样本，统计忽略标签 255 后的总错误率及距边界 1、3、5 像素内的错误数，并将六宫格可视化保存为 `outputs/boundary_error_analysis_sample0.png`。
 
+指定模型权重和可视化输出路径：
+
+```bash
+python analyze_boundary_errors.py \
+  --model-path models/real_weedmap_common_multispectral_boundary_weighted_ce_r5_w3_20epochs_seed0_best.pth \
+  --output outputs/boundary_error_analysis_boundary_weighted_ce_sample0.png
+```
+
 ## 真实 WeedMap loss 对比曲线
 
 使用已有的三份 multispectral、seed=0、20 epochs history CSV 绘制验证集 mean IoU 和 weed IoU 曲线：

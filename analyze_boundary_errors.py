@@ -38,12 +38,14 @@ def parse_args():
         default=Path(
             "models/real_weedmap_common_multispectral_weighted_ce_20epochs_best.pth"
         ),
+        help="Path to the model checkpoint (default: %(default)s)",
     )
     parser.add_argument("--sample-index", type=int, default=0)
     parser.add_argument(
         "--output",
         type=Path,
         default=Path("outputs/boundary_error_analysis_sample0.png"),
+        help="Path for the saved visualization (default: %(default)s)",
     )
     return parser.parse_args()
 
