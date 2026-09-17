@@ -14,7 +14,7 @@
 
 ## MobileNetV2ShallowUNet 方案 A
 
-方案 A 是低风险的第一版结构改造：保留原 U-Net 的 C1/C2、两级 Decoder 和三分类 head，仅以 MobileNetV2-style B1～B6 替换后续 `enc2` 与 bottleneck。它用于验证浅层 MobileNetV2-style encoder 能否在当前五通道 WeedMap 分割任务中跑通；尚未使用完整 B1～B17，因此不是论文完整版本。现有实验仍默认使用 `SmallUNet`，新模型需显式选择 `--model mobilenetv2_shallow_unet`，其默认权重和 history 文件名与原模型分开。本阶段只完成实现和 shape 检查，尚无新模型训练结果；完整方案 B 留待后续。
+方案 A 是 MobileNetV2-style shallow encoder 改造实验：保留当前 `SmallUNet` 的 C1/C2、Decoder、skip connection 和 segmentation head，用浅层 MobileNetV2-style inverted residual blocks B1～B6 替换原来的 `enc2` 与 bottleneck。它**不是论文完整 MobileNetV2-U-Net 复现**；完整 B1～B17 多尺度版本留作方案 B。现有训练脚本默认使用 `SmallUNet`，新模型需显式选择 `--model mobilenetv2_shallow_unet`，其默认权重和 history 文件名与原模型分开。方案 A 的正式训练结果见下文。
 
 ## 为什么使用 weighted_ce
 
@@ -265,6 +265,61 @@ best checkpoint 在验证集整体指标和单张预测可视化指标上都优�
 
 三个 seed 的 best epoch 均为 Epoch 15，说明当前设置在 20 epochs 内的最佳轮次比较稳定。三个 seed 的 mean IoU 位于 73.88%～75.47%，波动较小；weed IoU 均超过 54%，明显高于 10 epochs best 的 50.43%。多 seed 平均 weed IoU 为 56.89% ± 2.06%，支持 20 epochs 的提升不是偶然的单次结果。当前可将 `multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint` 作为后续 baseline。
 
+## MobileNetV2ShallowUNet 方案 A 正式实验
+
+### 结构与参数量
+
+方案 A 保留 `SmallUNet` 的 C1/C2、Decoder、skip connection 和 segmentation head，以浅层 MobileNetV2-style inverted residual blocks B1～B6 替换原 `enc2` 与 bottleneck。各级张量形状按高×宽×通道记录：
+
+| Encoder 节点 | 张量形状或通道变化 |
+| --- | --- |
+| 输入 | 360×480×5 |
+| e1 | 360×480×16 |
+| B3 | 180×240×24 |
+| e2 adapter | 24→32 |
+| e2 | 180×240×32 |
+| B6 | 90×120×32 |
+| center adapter | 32→64 |
+| center | 90×120×64 |
+
+Decoder 保持：`center 90×120×64 → up2 180×240×32 → concat e2 180×240×64 → dec2 180×240×32 → up1 360×480×16 → concat e1 360×480×32 → dec1 360×480×16 → head 360×480×3`。
+
+`SmallUNet` total params = 117,363；`MobileNetV2ShallowUNet` total params = 107,155。参数减少 10,208，约 8.7%。由于 `SmallUNet` 本身已经很小，此处只说明**轻微减少参数量**，不称为大幅轻量化。方案 A 不是论文完整 MobileNetV2-U-Net 复现；完整 B1～B17 多尺度版本及更深的多尺度 Decoder 留作方案 B。
+
+### 正式实验设置
+
+- dataset：WeedMap common split（`splits/real_weedmap_common_samples.csv`）
+- input：multispectral（5 通道）
+- loss：`weighted_ce`；class weights：background 1.0、crop 4.0、weed 8.0
+- epochs：20；batch size：2；seeds：0、1、2
+- 每个 seed 按验证集 mean IoU 选择 best checkpoint
+
+### 各 seed 的 best checkpoint 验证集结果
+
+| Seed | Best epoch | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 15 | 96.04% | 74.86% | 96.31% | 71.21% | 57.04% |
+| 1 | 14 | 96.57% | 75.51% | 96.92% | 69.29% | 60.30% |
+| 2 | 20 | 96.98% | 77.22% | 97.17% | 74.73% | 59.75% |
+
+### 三 seed 统计及原 SmallUNet baseline 对比
+
+表中 ± 后为三 seed 的样本标准差；提升是方案 A 与 baseline 均值之差，单位为百分点。
+
+| 模型 / 差值 | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SmallUNet weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
+| MobileNetV2ShallowUNet 方案 A weighted CE | 约 96.53% ± 0.47% | 约 75.86% ± 1.22% | 约 96.80% ± 0.44% | 约 71.74% ± 2.76% | 约 59.03% ± 1.74% |
+| 方案 A 相对提升（百分点） | +0.15 | +1.08 | +0.10 | +0.98 | +2.14 |
+
+### seed2 best checkpoint 的 sample0 可视化结果
+
+| Pixel accuracy | Background IoU | Crop IoU | Weed IoU | Mean IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 96.43% | 96.70% | 68.74% | 45.66% | 70.36% |
+
+这是单张 sample0 的结果，不代表整体验证集或三 seed 均值。方案 A 在三组随机种子上整体优于原 `SmallUNet` weighted CE baseline，尤其提升 weed IoU。这说明 MobileNetV2-style shallow encoder 对当前 WeedMap 多光谱语义分割任务有效；后续方案 B 可以考虑完整 B1～B17 和更深的多尺度 Decoder。
+
 ## Loss 多 seed 对比实验
 
 ### 实验设置
@@ -384,7 +439,7 @@ Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU �
 | r5_w3（boundary weight=3.0） | 75.08% ± 1.10% | 57.66% ± 1.58% |
 | r5_w4（boundary weight=4.0） | 75.17% ± 1.02% | 58.29% ± 0.92% |
 
-r5_w4 的 mean IoU 平均提高 0.09 个百分点，weed IoU 平均提高 0.63 个百分点，且 weed IoU 的跨 seed 样本标准差从 1.58 降至 0.92 个百分点。提升幅度较小，主要体现在 weed IoU 更高、更稳定。当前最优候选更新为 `multispectral + boundary_weighted_ce + boundary_radius=5 + boundary_weight=4.0 + 20 epochs + best checkpoint`。
+r5_w4 的 mean IoU 平均提高 0.09 个百分点，weed IoU 平均提高 0.63 个百分点，且 weed IoU 的跨 seed 样本标准差从 1.58 降至 0.92 个百分点。提升幅度较小，主要体现在 weed IoU 更高、更稳定。在 `SmallUNet` 的 boundary loss 调参中，较优候选为 `multispectral + boundary_weighted_ce + boundary_radius=5 + boundary_weight=4.0 + 20 epochs + best checkpoint`。
 
 ### Sample index=0 的预测与边界错误对比（r5_w3）
 
@@ -410,11 +465,11 @@ Boundary weighted CE 后的 sample index=0 边界错误统计：
 
 Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 从 5.18% 降至 3.34%；5px boundary error rate 从 14.48% 降至 9.50%，outside 5px error rate 从 0.38% 降至 0.16%。绝对错误数表明 boundary-aware loss 减少了边界附近错误；剩余错误的边界占比仍高，说明边界仍是后续优化重点。
 
-阶段性结论：boundary weighted CE 相比原 Weighted CE 有小幅提升；在 boundary weight 调参中，r5_w4 相比 r5_w3 的 weed IoU 更高、更稳定，可作为当前候选主结果。继续保留 Weighted CE 作为稳定 baseline。
+阶段性结论：boundary weighted CE 相比原 Weighted CE 有小幅提升；在 `SmallUNet` 的 boundary weight 调参中，r5_w4 相比 r5_w3 的 weed IoU 更高、更稳定，可作为该组实验的候选结果。继续保留 Weighted CE 作为稳定 baseline。
 
 ## 阶段性结论
 
-目前可将 r5_w4（`multispectral + boundary_weighted_ce + boundary_radius=5 + boundary_weight=4.0 + 20 epochs + best checkpoint`）作为候选主结果。三 seed 的 Pixel Accuracy = 96.79% ± 0.16%，Mean IoU = 75.17% ± 1.02%，Weed IoU = 58.29% ± 0.92%。相比 r5_w3 提升幅度较小；Weighted CE 仍是稳定 baseline。
+方案 A 使用原 weighted CE 设置，三 seed 的 Pixel Accuracy 约 96.53% ± 0.47%、Mean IoU 约 75.86% ± 1.22%、Weed IoU 约 59.03% ± 1.74%，相对原 `SmallUNet` weighted CE baseline 分别提高 0.15、1.08、2.14 个百分点。r5_w4（`multispectral + boundary_weighted_ce + boundary_radius=5 + boundary_weight=4.0 + 20 epochs + best checkpoint`）仍是 `SmallUNet` 的 boundary loss 候选结果，其三 seed Mean IoU 为 75.17% ± 1.02%、Weed IoU 为 58.29% ± 0.92%。`SmallUNet` weighted CE 保留为结构对比 baseline。
 
 ## 下一步计划
 
@@ -423,6 +478,7 @@ Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 
 - 后续可用 `python plot_real_loss_comparison.py` 生成真实 WeedMap loss 对比曲线图。
 - 可尝试调节 Dice + CE 的权重系数，例如 `CE + 0.5 Dice` 或 `CE + 2 Dice`，并增加 seed 验证稳定性。
 - 可尝试 30 epochs，但必须继续根据 val mean IoU 使用 best checkpoint；
+- 方案 B 可考虑完整 B1～B17 和更深的多尺度 Decoder。
 - 后续更新 Word 报告给导师。
 
 ## 语义分割与目标检测路线选择分析

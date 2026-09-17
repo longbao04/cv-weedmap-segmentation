@@ -586,7 +586,7 @@ Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU �
 | r5_w3（boundary weight=3.0） | 75.08% ± 1.10% | 57.66% ± 1.58% |
 | r5_w4（boundary weight=4.0） | 75.17% ± 1.02% | 58.29% ± 0.92% |
 
-r5_w4 的 mean IoU 平均提高 0.09 个百分点，weed IoU 平均提高 0.63 个百分点，且 weed IoU 的跨 seed 样本标准差从 1.58 降至 0.92 个百分点。提升幅度较小，主要体现在 weed IoU 更高、更稳定。当前最优候选更新为 `multispectral + boundary_weighted_ce + boundary_radius=5 + boundary_weight=4.0 + 20 epochs + best checkpoint`。
+r5_w4 的 mean IoU 平均提高 0.09 个百分点，weed IoU 平均提高 0.63 个百分点，且 weed IoU 的跨 seed 样本标准差从 1.58 降至 0.92 个百分点。提升幅度较小，主要体现在 weed IoU 更高、更稳定。在 `SmallUNet` 的 boundary loss 调参中，较优候选为 `multispectral + boundary_weighted_ce + boundary_radius=5 + boundary_weight=4.0 + 20 epochs + best checkpoint`。
 
 ### Sample index=0 的预测与边界错误对比（r5_w3）
 
@@ -612,9 +612,60 @@ Boundary weighted CE 后的 sample index=0 边界错误统计：
 
 Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 从 5.18% 降至 3.34%；5px boundary error rate 从 14.48% 降至 9.50%，outside 5px error rate 从 0.38% 降至 0.16%。绝对错误数表明 boundary-aware loss 减少了边界附近错误；剩余错误的边界占比仍高，说明边界仍是后续优化重点。
 
-阶段性结论：boundary weighted CE 相比原 Weighted CE 有小幅提升；在 boundary weight 调参中，r5_w4 相比 r5_w3 的 weed IoU 更高、更稳定，可作为当前候选主结果。继续保留 Weighted CE 作为稳定 baseline。
+阶段性结论：boundary weighted CE 相比原 Weighted CE 有小幅提升；在 `SmallUNet` 的 boundary weight 调参中，r5_w4 相比 r5_w3 的 weed IoU 更高、更稳定，可作为该组实验的候选结果。继续保留 Weighted CE 作为稳定 baseline。
 
-## 23. 真实预测可视化与误差分析
+## 23. MobileNetV2ShallowUNet 方案 A 正式实验
+
+### 方案定位、结构与参数量
+
+`MobileNetV2ShallowUNet` 是方案 A：保留当前 `SmallUNet` 的 C1/C2、Decoder、skip connection 和 segmentation head，以浅层 MobileNetV2-style inverted residual blocks B1～B6 替换原 `enc2` 与 bottleneck。这是 MobileNetV2-style shallow encoder 改造实验，**不是论文完整 MobileNetV2-U-Net 复现**；完整 B1～B17 多尺度版本留作方案 B。
+
+结构路径按高×宽×通道表示：`输入 360×480×5 → e1 360×480×16 → B3 180×240×24 → e2 adapter 24→32 → e2 180×240×32 → B6 90×120×32 → center adapter 32→64 → center 90×120×64`。
+
+Decoder 保持：`center 90×120×64 → up2 180×240×32 → concat e2 180×240×64 → dec2 180×240×32 → up1 360×480×16 → concat e1 360×480×32 → dec1 360×480×16 → head 360×480×3`。
+
+| 模型 | Total params |
+| --- | ---: |
+| SmallUNet | 117,363 |
+| MobileNetV2ShallowUNet（方案 A） | 107,155 |
+
+方案 A 减少 10,208 个参数，约 8.7%。原 `SmallUNet` 本身已很小，因此这里只能称为**轻微减少参数量**，不能称为大幅轻量化。
+
+### 正式实验设置
+
+- dataset：WeedMap common split（`splits/real_weedmap_common_samples.csv`）；
+- input：multispectral（5 通道）；
+- loss：`weighted_ce`；class weights：background 1.0、crop 4.0、weed 8.0；
+- epochs：20；batch size：2；seeds：0、1、2；
+- 按验证集 mean IoU 为每个 seed 选择 best checkpoint。
+
+### 三 seed best checkpoint 验证集结果
+
+| Seed | Best epoch | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 15 | 96.04% | 74.86% | 96.31% | 71.21% | 57.04% |
+| 1 | 14 | 96.57% | 75.51% | 96.92% | 69.29% | 60.30% |
+| 2 | 20 | 96.98% | 77.22% | 97.17% | 74.73% | 59.75% |
+
+### 三 seed 统计与 SmallUNet weighted CE baseline 对比
+
+± 后为三 seed 的样本标准差；提升按两组均值相减，单位为百分点。
+
+| 模型 / 差值 | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SmallUNet weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
+| MobileNetV2ShallowUNet 方案 A weighted CE | 约 96.53% ± 0.47% | 约 75.86% ± 1.22% | 约 96.80% ± 0.44% | 约 71.74% ± 2.76% | 约 59.03% ± 1.74% |
+| 方案 A 相对提升（百分点） | +0.15 | +1.08 | +0.10 | +0.98 | +2.14 |
+
+### seed2 best checkpoint 的 sample0 可视化结果
+
+| Pixel accuracy | Background IoU | Crop IoU | Weed IoU | Mean IoU |
+| ---: | ---: | ---: | ---: | ---: |
+| 96.43% | 96.70% | 68.74% | 45.66% | 70.36% |
+
+sample0 是单张样本，不能代替整体验证集或三 seed 统计。方案 A 在三组随机种子上整体优于原 `SmallUNet` weighted CE baseline，尤其提升 weed IoU，说明 MobileNetV2-style shallow encoder 对当前 WeedMap 多光谱语义分割任务有效。方案 B 后续可考虑完整 B1～B17 和更深的多尺度 Decoder。
+
+## 24. 真实预测可视化与误差分析
 
 ### 3 epochs
 
@@ -644,7 +695,7 @@ Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 
 
 单样本指标低于整体验证集的最终指标并不矛盾，说明不同样本难度存在差异。整体上，**真实农业遥感中的 weed 具有面积小、分布散、外观与作物相近等特点，是当前最难类别之一。**
 
-## 24. 评价指标解释
+## 25. 评价指标解释
 
 1. **Pixel Accuracy**：所有有效像素中预测正确的比例。若背景占比很大，即使 weed 预测较差，accuracy 仍可能很高。
 2. **IoU**：`intersection / union`，分别计算某一类别预测区域与真实区域的交集占并集的比例。
@@ -652,7 +703,7 @@ Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 
 4. **Weed IoU**：本项目最重要的指标之一。导师课题中的杂草识别是关键难点，weed 通常面积小、分布零散，并容易与作物或土壤混淆。
 5. **ignore_index=255**：无效区域不参与训练 loss 和指标计算，避免模型学习无意义的黑边或 no-data 区域。
 
-## 25. 当前阶段主要结论
+## 26. 当前阶段主要结论
 
 1. 已从传统 CV / synthetic 实验推进到真实 UAV 多光谱语义分割数据。
 2. 光谱指数实验说明土壤与植被较容易区分，但 crop 与 weed 均属于植被，二者更难区分。
@@ -670,9 +721,10 @@ Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 
 14. 20 epochs 的三个 seed 均在 Epoch 15 取得 best checkpoint，mean IoU 为 73.88%～75.47%，weed IoU 均超过 54%；多 seed 平均 mean IoU 为 74.78% ± 0.82%，weed IoU 为 56.89% ± 2.06%。
 15. Loss 多 seed 对比中，Weighted CE 的平均 mean IoU（74.78% ± 0.82%）和 weed IoU（56.89% ± 2.06%）均最高；Dice + CE 的 seed=2 明显下降，稳定性仍需验证。
 16. Boundary error analysis 显示，sample index=0 中 5px 边界区域占有效像素 34.06%，却包含 Weighted CE 的 95.18% 错误；boundary weighted CE 将该样本边界错误率从 14.48% 降至 9.50%。
-17. r5_w4 是当前候选主结果，三 seed 平均 Pixel Accuracy = 96.79% ± 0.16%、Mean IoU = 75.17% ± 1.02%、Weed IoU = 58.29% ± 0.92%。相比 r5_w3 的 mean IoU（75.08% ± 1.10%）和 weed IoU（57.66% ± 1.58%）仅有小幅提升，weed IoU 更稳定；Weighted CE 保留为稳定 baseline。
+17. 在 `SmallUNet` 的 boundary loss 调参中，r5_w4 是较优候选：三 seed 平均 Pixel Accuracy = 96.79% ± 0.16%、Mean IoU = 75.17% ± 1.02%、Weed IoU = 58.29% ± 0.92%。相比 r5_w3 的 mean IoU（75.08% ± 1.10%）和 weed IoU（57.66% ± 1.58%）仅有小幅提升，weed IoU 更稳定；Weighted CE 保留为稳定 baseline。
+18. `MobileNetV2ShallowUNet` 方案 A 在原 weighted CE 设置下，三 seed 平均 Mean IoU 约 75.86% ± 1.22%、Weed IoU 约 59.03% ± 1.74%，分别比原 `SmallUNet` weighted CE baseline 高 1.08 和 2.14 个百分点。方案 A 是浅层 MobileNetV2-style encoder 改造，完整 B1～B17 多尺度版本留作方案 B。
 
-## 26. 当前项目已完成内容
+## 27. 当前项目已完成内容
 
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
@@ -695,9 +747,10 @@ Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 
 | 真实 WeedMap loss 多 seed 对比 | Weighted CE / Focal Loss / Dice + CE，均使用 Seed 0/1/2 和 best checkpoint | 完成 |
 | Boundary error analysis | Sample index=0 的 1/3/5px 边界错误统计及两种 loss 对比 | 完成 |
 | Boundary weighted CE | Boundary radius 5、weight 3.0 / 4.0，Seed 0/1/2，使用 best checkpoint | 完成 |
+| MobileNetV2ShallowUNet 方案 A | WeedMap common split，multispectral weighted CE，20 epochs，Seed 0/1/2，使用 best checkpoint | 完成 |
 | 预测可视化 | 真实样本预测图和 error map | 完成 |
 
-## 27. 下一步实验计划
+## 28. 下一步实验计划
 
 1. **Loss 后续分析与调参**
    - 可继续测试 `boundary_weighted_ce` 的其他 boundary weight，例如 2.0；
@@ -715,10 +768,12 @@ Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 
    - 根据真实传感器通道和数据质量调整输入与预处理。
 5. **导师提交材料**
    - 后续更新 Word 报告给导师。
+6. **方案 B**
+   - 可考虑完整 B1～B17 和更深的多尺度 Decoder，并与方案 A 对比。
 
-## 28. 给导师汇报时可以说的话
+## 29. 给导师汇报时可以说的话
 
-老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我整理了真实 WeedMap Tiles 数据并完成标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。严格公平的 RGB 与 multispectral 对比使用相同的 454 个样本，其中 train 363 个、val 91 个。Multispectral 的 mean IoU 为 67.76%，高于 RGB 的 65.27%；weed IoU 为 46.73%，也明显高于 RGB 的 34.56%，说明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 略高，说明 RGB 对作物行状结构也有一定优势。由于 weed 是课题的关键难点，多光谱方向更值得深入。继续在 multispectral 上比较 weed weight 8、12 和 16 后，权重 8 的结果最好。使用该权重训练 20 epochs，并以验证集 mean IoU 选择 best checkpoint 后，三个 seed 的最佳轮次均为 Epoch 15。比较 Weighted CE、Focal Loss 和 Dice + CE 的三个 seed 结果后，Weighted CE 在这三种 loss 中的平均 mean IoU 和 weed IoU 最高。进一步分析 sample index=0，发现 5px 边界区域包含 Weighted CE 的 95.18% 错误。采用 boundary weighted CE 后，该样本的边界错误率从 14.48% 降至 9.50%；三 seed 平均 Mean IoU 从 74.78% 小幅升至 75.08%，Weed IoU 从 56.89% 升至 57.66%。进一步将 boundary weight 从 3.0 调至 4.0 后，三 seed 平均 Mean IoU 从 75.08% 小幅升至 75.17%，Weed IoU 从 57.66% 升至 58.29%，Weed IoU 的样本标准差从 1.58 降至 0.92 个百分点。目前将 r5_w4 作为候选主结果，保留 Weighted CE 作为稳定 baseline；后续生成预测对比图，并更新 Word 报告。
+老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我整理了真实 WeedMap Tiles 数据并完成标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。严格公平的 RGB 与 multispectral 对比使用相同的 454 个样本，其中 train 363 个、val 91 个。Multispectral 的 mean IoU 为 67.76%，高于 RGB 的 65.27%；weed IoU 为 46.73%，也明显高于 RGB 的 34.56%，说明多光谱通道对杂草识别更有帮助。RGB 的 crop IoU 略高，说明 RGB 对作物行状结构也有一定优势。由于 weed 是课题的关键难点，多光谱方向更值得深入。继续在 multispectral 上比较 weed weight 8、12 和 16 后，权重 8 的结果最好。使用该权重训练 20 epochs，并以验证集 mean IoU 选择 best checkpoint 后，三个 seed 的最佳轮次均为 Epoch 15。比较 Weighted CE、Focal Loss 和 Dice + CE 的三个 seed 结果后，Weighted CE 在这三种 loss 中的平均 mean IoU 和 weed IoU 最高。进一步分析 sample index=0，发现 5px 边界区域包含 Weighted CE 的 95.18% 错误。采用 boundary weighted CE 后，该样本的边界错误率从 14.48% 降至 9.50%；三 seed 平均 Mean IoU 从 74.78% 小幅升至 75.08%，Weed IoU 从 56.89% 升至 57.66%。进一步将 boundary weight 从 3.0 调至 4.0 后，三 seed 平均 Mean IoU 从 75.08% 小幅升至 75.17%，Weed IoU 从 57.66% 升至 58.29%，Weed IoU 的样本标准差从 1.58 降至 0.92 个百分点。r5_w4 是 SmallUNet 的 boundary loss 候选结果，原 SmallUNet weighted CE 保留为结构对比 baseline。进一步用 MobileNetV2ShallowUNet 方案 A 进行三 seed 正式实验，平均 Mean IoU 为 75.86% ± 1.22%、Weed IoU 为 59.03% ± 1.74%，比原 SmallUNet weighted CE baseline 分别提高 1.08 和 2.14 个百分点。方案 A 只是浅层 MobileNetV2-style encoder 改造，后续方案 B 可考虑完整 B1～B17 和更深的多尺度 Decoder。
 
 ## 语义分割与目标检测路线选择分析
 

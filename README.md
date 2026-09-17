@@ -177,7 +177,29 @@ python train_real_weedmap_unet.py --input-type multispectral --sample-list-csv s
 
 ### MobileNetV2ShallowUNet（方案 A）
 
-`--model` 默认为 `small_unet`，保持以上实验的模型和默认文件名。选择 `--model mobilenetv2_shallow_unet` 时，使用新增的 `MobileNetV2ShallowUNet`：保留 C1/C2 和原两级 Decoder，仅用 MobileNetV2-style B1～B6 替换后续的 `enc2` 与 bottleneck。它是验证浅层 encoder 能否用于当前 WeedMap 分割任务的方案 A，**不是**使用完整 B1～B17 的论文版本；完整方案 B 留待后续。新模型的默认权重和 history 文件名会加入 `mobilenetv2_shallow_unet`，避免覆盖 `SmallUNet` 实验。可运行 `python check_mobilenetv2_shallow_unet_shapes.py` 检查 5 通道、360×480 输入的各级 shape；预测可视化脚本也支持同名 `--model` 参数。
+`--model` 默认为 `small_unet`，保持以上实验的模型和默认文件名。选择 `--model mobilenetv2_shallow_unet` 时使用方案 A：保留当前 `SmallUNet` 的 C1/C2、Decoder、skip connection 和 segmentation head，用浅层 MobileNetV2-style inverted residual blocks B1～B6 替换原来的 `enc2` 与 bottleneck。这是 MobileNetV2-style shallow encoder 改造实验，**不是论文完整 MobileNetV2-U-Net 复现**；完整 B1～B17 多尺度版本留作方案 B。新模型的默认权重和 history 文件名会加入 `mobilenetv2_shallow_unet`，避免覆盖 `SmallUNet` 实验。可运行 `python check_mobilenetv2_shallow_unet_shapes.py` 检查 5 通道、360×480 输入的各级 shape；预测可视化脚本也支持同名 `--model` 参数。
+
+方案 A 的张量路径（高×宽×通道）：`输入 360×480×5 → e1 360×480×16 → B3 180×240×24 → e2 adapter 24→32 → e2 180×240×32 → B6 90×120×32 → center adapter 32→64 → center 90×120×64`。Decoder 保持原结构：`center 90×120×64 → up2 180×240×32 → concat e2 180×240×64 → dec2 180×240×32 → up1 360×480×16 → concat e1 360×480×32 → dec1 360×480×16 → head 360×480×3`。
+
+`SmallUNet` 共 117,363 个参数，`MobileNetV2ShallowUNet` 共 107,155 个参数，减少 10,208 个，约 8.7%。由于原 `SmallUNet` 已经很小，这属于**轻微减少参数量**，不能称为大幅轻量化。
+
+正式实验使用 WeedMap common split、multispectral 输入、`weighted_ce`（background=1.0、crop=4.0、weed=8.0）、20 epochs、batch size 2、seed 0/1/2；按验证集 mean IoU 选择每个 seed 的 best checkpoint。
+
+| 模型 / seed | Best epoch | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 方案 A / 0 | 15 | 96.04% | 74.86% | 96.31% | 71.21% | 57.04% |
+| 方案 A / 1 | 14 | 96.57% | 75.51% | 96.92% | 69.29% | 60.30% |
+| 方案 A / 2 | 20 | 96.98% | 77.22% | 97.17% | 74.73% | 59.75% |
+
+| 三 seed 统计 | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SmallUNet weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
+| 方案 A weighted CE | 约 96.53% ± 0.47% | 约 75.86% ± 1.22% | 约 96.80% ± 0.44% | 约 71.74% ± 2.76% | 约 59.03% ± 1.74% |
+| 方案 A 相对提升（百分点） | +0.15 | +1.08 | +0.10 | +0.98 | +2.14 |
+
+seed2 best checkpoint 的 sample0 单张可视化结果：pixel accuracy 96.43%、background IoU 96.70%、crop IoU 68.74%、weed IoU 45.66%、mean IoU 70.36%。该单张结果与上表整体验证集结果的统计范围不同。
+
+方案 A 在三个随机种子上整体优于原 `SmallUNet` weighted CE baseline，尤其提升 weed IoU，说明浅层 MobileNetV2-style encoder 对当前 WeedMap 多光谱语义分割任务有效。方案 B 后续可考虑完整 B1～B17 和更深的多尺度 Decoder；详细记录见 [`real_experiment_notes.md`](real_experiment_notes.md)。
 
 ## 真实 WeedMap 预测可视化
 
