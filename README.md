@@ -117,13 +117,13 @@ python build_common_sample_list.py
 
 ## YOLO detect baseline 数据准备
 
-本项目新增 YOLO detect baseline，用于稀疏 crop/weed 目标检测，与 U-Net 语义分割路线互补。先运行 `prepare_yolo_detection_dataset.py`，把像素标签的连通区域转换为 YOLO bbox 标签：
+本项目新增 YOLO detect baseline，用于稀疏 crop/weed 目标检测，与 U-Net 语义分割路线互补。运行以下命令生成或重新生成 YOLO bbox 数据集：
 
 ```bash
-python prepare_yolo_detection_dataset.py
+python prepare_yolo_detection_dataset.py --overwrite
 ```
 
-脚本读取同一份共享样本列表，按 U-Net 的 seed=0 和 80/20 规则划分（当前为 train 363 张、val 91 张），直接复制原始 RGB 图到 `data/yolo_weedmap_detect/images/{train,val}`，并在 `labels/{train,val}` 写出对应标签和空目标图片的空 `.txt`。类别为 `0=crop`、`1=weed`，不输出 background；默认只保留面积至少 20 像素的八连通区域。相接的植株可能合并为一个框，因此这些框表示连通区域，不保证对应单株。`data.yaml` 写在输出目录。可用 `--data-root`、`--sample-list-csv`、`--output-dir`、`--seed`、`--min-area` 调整；输出目录须为空。此步骤仅准备检测数据，不训练模型。
+脚本读取同一份共享样本列表，按 U-Net 的 seed=0 和 80/20 规则划分（当前为 train 363 张、val 91 张），直接复制原始 RGB 图到 `data/yolo_weedmap_detect/images/{train,val}`，并在 `labels/{train,val}` 写出对应标签和空目标图片的空 `.txt`。类别为 `0=crop`、`1=weed`，不输出 background；使用八连通区域生成 bbox。直接从 segmentation mask 转 YOLO bbox 可能产生碎框和过大片状框，因此默认跳过面积小于 20 像素、框宽或高小于 4 像素、框面积超过图像面积 25% 的区域；可通过 `--min-area`、`--min-box-width`、`--min-box-height`、`--max-box-area-ratio` 调整，并可用 `--skip-border-touching` 跳过接触图像边界的框。终端输出保留的 crop/weed 框数，以及 `skipped small boxes`、`skipped huge boxes`、`skipped border boxes` 数量。相接的植株可能合并为一个框，因此这些框表示连通区域，不保证对应单株。`data.yaml` 写在输出目录。还可用 `--data-root`、`--sample-list-csv`、`--output-dir`、`--seed` 调整；已有非空输出目录时需使用 `--overwrite`，否则请选择空目录。此步骤仅准备检测数据，不训练模型。
 
 训练 YOLO 前，先检查转换后的检测框：
 

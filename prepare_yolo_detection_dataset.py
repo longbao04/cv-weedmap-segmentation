@@ -83,18 +83,51 @@ def connected_components(binary_mask, min_area):
     )
 
 
-def yolo_lines(label, min_area):
+def yolo_lines(
+    label,
+    min_area,
+    max_box_area_ratio=0.25,
+    min_box_width=4,
+    min_box_height=4,
+    skip_border_touching=False,
+):
     height, width = label.shape
     lines = []
-    counts = {"crop": 0, "weed": 0}
+    counts = {
+        "crop": 0,
+        "weed": 0,
+        "skipped small boxes": 0,
+        "skipped huge boxes": 0,
+        "skipped border boxes": 0,
+    }
     for pixel_class, yolo_class, name in ((1, 0, "crop"), (2, 1, "weed")):
-        for xmin, ymin, xmax, ymax, _ in connected_components(
-            label == pixel_class, min_area
+        for xmin, ymin, xmax, ymax, area in connected_components(
+            label == pixel_class, 1
         ):
+            box_width_pixels = xmax - xmin
+            box_height_pixels = ymax - ymin
+            if (
+                area < min_area
+                or box_width_pixels < min_box_width
+                or box_height_pixels < min_box_height
+            ):
+                counts["skipped small boxes"] += 1
+                continue
+            if (
+                box_width_pixels * box_height_pixels / (width * height)
+                > max_box_area_ratio
+            ):
+                counts["skipped huge boxes"] += 1
+                continue
+            if skip_border_touching and (
+                xmin == 0 or ymin == 0 or xmax == width or ymax == height
+            ):
+                counts["skipped border boxes"] += 1
+                continue
             x_center = (xmin + xmax) / (2 * width)
             y_center = (ymin + ymax) / (2 * height)
-            box_width = (xmax - xmin) / width
-            box_height = (ymax - ymin) / height
+            box_width = box_width_pixels / width
+            box_height = box_height_pixels / height
             lines.append(
                 f"{yolo_class} {x_center:.8f} {y_center:.8f} "
                 f"{box_width:.8f} {box_height:.8f}"
@@ -103,14 +136,41 @@ def yolo_lines(label, min_area):
     return lines, counts
 
 
-def prepare_dataset(data_root, sample_list_csv, output_dir, seed, min_area):
+def prepare_dataset(
+    data_root,
+    sample_list_csv,
+    output_dir,
+    seed,
+    min_area,
+    max_box_area_ratio=0.25,
+    min_box_width=4,
+    min_box_height=4,
+    skip_border_touching=False,
+    overwrite=False,
+):
     if min_area < 1:
         raise ValueError("--min-area must be at least 1")
+    if not 0 < max_box_area_ratio <= 1:
+        raise ValueError("--max-box-area-ratio must be greater than 0 and at most 1")
+    if min_box_width < 1:
+        raise ValueError("--min-box-width must be at least 1")
+    if min_box_height < 1:
+        raise ValueError("--min-box-height must be at least 1")
     if output_dir.exists() and any(output_dir.iterdir()):
-        raise FileExistsError(
-            f"Output directory is not empty: {output_dir}. "
-            "Choose an empty --output-dir to avoid mixing old and new labels."
-        )
+        if not overwrite:
+            raise FileExistsError(
+                f"Output directory is not empty: {output_dir}. "
+                "Use --overwrite to regenerate it or choose an empty --output-dir."
+            )
+        if (
+            output_dir.is_symlink()
+            or "yolo_weedmap_detect" not in output_dir.resolve().name
+        ):
+            raise ValueError(
+                f"Refusing to delete unsafe output directory: {output_dir}. "
+                "The directory name must contain 'yolo_weedmap_detect' and must not be a symlink."
+            )
+        shutil.rmtree(output_dir)
 
     # Match the multispectral U-Net experiment's filtered sample order.
     dataset = WeedMapDataset(
@@ -126,7 +186,14 @@ def prepare_dataset(data_root, sample_list_csv, output_dir, seed, min_area):
 
     indices = torch.randperm(total, generator=torch.Generator().manual_seed(seed)).tolist()
     splits = {"train": indices[:train_size], "val": indices[train_size:]}
-    counts = {"crop": 0, "weed": 0, "empty": 0}
+    counts = {
+        "crop": 0,
+        "weed": 0,
+        "empty": 0,
+        "skipped small boxes": 0,
+        "skipped huge boxes": 0,
+        "skipped border boxes": 0,
+    }
 
     for split in splits:
         (output_dir / "images" / split).mkdir(parents=True, exist_ok=True)
@@ -142,7 +209,14 @@ def prepare_dataset(data_root, sample_list_csv, output_dir, seed, min_area):
             with Image.open(rgb_path) as image:
                 width, height = image.size
             label = dataset._load_label(color_path, mask_path, (height, width))
-            lines, image_counts = yolo_lines(label, min_area)
+            lines, image_counts = yolo_lines(
+                label,
+                min_area,
+                max_box_area_ratio,
+                min_box_width,
+                min_box_height,
+                skip_border_touching,
+            )
 
             # Prefix with the subset name to keep frame IDs from different
             # WeedMap sequences distinct in YOLO's flat split directories.
@@ -154,6 +228,12 @@ def prepare_dataset(data_root, sample_list_csv, output_dir, seed, min_area):
             )
             counts["crop"] += image_counts["crop"]
             counts["weed"] += image_counts["weed"]
+            for key in (
+                "skipped small boxes",
+                "skipped huge boxes",
+                "skipped border boxes",
+            ):
+                counts[key] += image_counts[key]
             counts["empty"] += not lines
 
     (output_dir / "data.yaml").write_text(
@@ -170,6 +250,8 @@ def prepare_dataset(data_root, sample_list_csv, output_dir, seed, min_area):
     print(f"crop box count: {counts['crop']}")
     print(f"weed box count: {counts['weed']}")
     print(f"empty image count: {counts['empty']}")
+    for key in ("skipped small boxes", "skipped huge boxes", "skipped border boxes"):
+        print(f"{key}: {counts[key]}")
     print(f"YOLO dataset: {output_dir}")
 
 
@@ -186,9 +268,23 @@ def main():
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--min-area", type=int, default=20)
+    parser.add_argument("--max-box-area-ratio", type=float, default=0.25)
+    parser.add_argument("--min-box-width", type=int, default=4)
+    parser.add_argument("--min-box-height", type=int, default=4)
+    parser.add_argument("--skip-border-touching", action="store_true")
+    parser.add_argument("--overwrite", action="store_true", default=False)
     args = parser.parse_args()
     prepare_dataset(
-        args.data_root, args.sample_list_csv, args.output_dir, args.seed, args.min_area
+        args.data_root,
+        args.sample_list_csv,
+        args.output_dir,
+        args.seed,
+        args.min_area,
+        args.max_box_area_ratio,
+        args.min_box_width,
+        args.min_box_height,
+        args.skip_border_touching,
+        args.overwrite,
     )
 
 
