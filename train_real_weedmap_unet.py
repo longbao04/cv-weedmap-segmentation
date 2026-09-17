@@ -13,7 +13,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, random_split
 
 from losses import DiceLoss, FocalLoss
-from unet import SmallUNet
+from unet import MobileNetV2ShallowUNet, SmallUNet
 from weedmap_dataset import WeedMapDataset
 
 
@@ -22,6 +22,7 @@ IGNORE_INDEX = 255
 CLASS_NAMES = ("background", "crop", "weed")
 LOSS_CHOICES = ("ce", "weighted_ce", "focal", "dice_ce", "boundary_weighted_ce")
 INPUT_CHOICES = ("rgb", "multispectral")
+MODEL_CHOICES = ("small_unet", "mobilenetv2_shallow_unet")
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
@@ -89,6 +90,7 @@ def parse_args():
     parser.add_argument(
         "--input-type", choices=INPUT_CHOICES, default="multispectral"
     )
+    parser.add_argument("--model", choices=MODEL_CHOICES, default="small_unet")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--lr", type=float, default=0.001)
@@ -105,7 +107,7 @@ def parse_args():
         type=Path,
         default=None,
         help=(
-            "模型保存路径；默认 models/real_weedmap_<input_type>_<loss>.pth"
+            "模型保存路径；默认路径按 --model 区分，small_unet 保持原文件名"
         ),
     )
     parser.add_argument(
@@ -113,8 +115,8 @@ def parse_args():
         type=Path,
         default=None,
         help=(
-            "训练 history CSV 保存路径；默认 "
-            "outputs/real_weedmap_history_<input_type>_<loss>.csv"
+            "训练 history CSV 保存路径；默认路径按 --model 区分，"
+            "small_unet 保持原文件名"
         ),
     )
     args = parser.parse_args()
@@ -248,7 +250,10 @@ def main():
     )
 
     in_channels = 3 if args.input_type == "rgb" else 5
-    model = SmallUNet(in_channels=in_channels, num_classes=NUM_CLASSES).to(device)
+    model_class = (
+        SmallUNet if args.model == "small_unet" else MobileNetV2ShallowUNet
+    )
+    model = model_class(in_channels=in_channels, num_classes=NUM_CLASSES).to(device)
     if args.loss == "weighted_ce":
         class_weights = torch.tensor(
             [args.background_weight, args.crop_weight, args.weed_weight],
@@ -287,15 +292,17 @@ def main():
     output_dir = PROJECT_ROOT / "outputs"
     model_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
+    model_prefix = "" if args.model == "small_unet" else f"{args.model}_"
     model_path = args.save_path or (
-        model_dir / f"real_weedmap_{args.input_type}_{args.loss}.pth"
+        model_dir / f"real_weedmap_{model_prefix}{args.input_type}_{args.loss}.pth"
     )
     model_path.parent.mkdir(parents=True, exist_ok=True)
     best_model_path = model_path.with_name(
         f"{model_path.stem}_best{model_path.suffix}"
     )
     history_path = args.history_path or (
-        output_dir / f"real_weedmap_history_{args.input_type}_{args.loss}.csv"
+        output_dir
+        / f"real_weedmap_history_{model_prefix}{args.input_type}_{args.loss}.csv"
     )
     history_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = (
@@ -312,6 +319,7 @@ def main():
         csv.DictWriter(history_file, fieldnames=fieldnames).writeheader()
 
     print(f"device: {device}")
+    print(f"model: {args.model}")
     print(f"input_type: {args.input_type}")
     print(f"train samples: {train_size}")
     print(f"val samples: {val_size}")

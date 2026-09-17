@@ -175,6 +175,10 @@ python train_real_weedmap_unet.py --input-type multispectral --sample-list-csv s
 
 每个 epoch 输出 train loss、验证集 pixel accuracy、mean IoU 和三类 IoU。训练结束时保存最后一轮模型；验证集 mean IoU 创新高时同时保存 best checkpoint。默认最后一轮模型路径为 `models/real_weedmap_<input_type>_<loss>.pth`，best 模型在文件名后缀前加 `_best`；例如 `--save-path models/xxx.pth` 对应 `models/xxx_best.pth`。history 保存到 `outputs/real_weedmap_history_<input_type>_<loss>.csv`，其中 `is_best` 标记当时刷新最佳 mean IoU 的 epoch。`models/` 和 `outputs/` 会自动创建且已被 Git 忽略。可用 `--data-root`、`--batch-size`、`--lr`、`--seed` 和 `--num-workers` 调整训练参数。
 
+### MobileNetV2ShallowUNet（方案 A）
+
+`--model` 默认为 `small_unet`，保持以上实验的模型和默认文件名。选择 `--model mobilenetv2_shallow_unet` 时，使用新增的 `MobileNetV2ShallowUNet`：保留 C1/C2 和原两级 Decoder，仅用 MobileNetV2-style B1～B6 替换后续的 `enc2` 与 bottleneck。它是验证浅层 encoder 能否用于当前 WeedMap 分割任务的方案 A，**不是**使用完整 B1～B17 的论文版本；完整方案 B 留待后续。新模型的默认权重和 history 文件名会加入 `mobilenetv2_shallow_unet`，避免覆盖 `SmallUNet` 实验。可运行 `python check_mobilenetv2_shallow_unet_shapes.py` 检查 5 通道、360×480 输入的各级 shape；预测可视化脚本也支持同名 `--model` 参数。
+
 ## 真实 WeedMap 预测可视化
 
 使用已训练的真实 WeedMap U-Net 模型可视化单张样本的输入、NDVI、真值、预测、错误区域和预测叠加图：

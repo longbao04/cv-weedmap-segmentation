@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from matplotlib.patches import Patch
 
-from unet import SmallUNet
+from unet import MobileNetV2ShallowUNet, SmallUNet
 from weedmap_dataset import WeedMapDataset
 
 
@@ -20,6 +20,7 @@ NUM_CLASSES = 3
 IGNORE_INDEX = 255
 CLASS_NAMES = ("background", "crop", "weed")
 INPUT_CHOICES = ("rgb", "multispectral")
+MODEL_CHOICES = ("small_unet", "mobilenetv2_shallow_unet")
 LOSS_CHOICES = ("ce", "weighted_ce")
 MASK_COLORS = np.array(
     [
@@ -39,6 +40,7 @@ def parse_args():
     parser.add_argument(
         "--input-type", choices=INPUT_CHOICES, default="multispectral"
     )
+    parser.add_argument("--model", choices=MODEL_CHOICES, default="small_unet")
     parser.add_argument(
         "--loss",
         choices=LOSS_CHOICES,
@@ -48,17 +50,30 @@ def parse_args():
     parser.add_argument(
         "--model-path",
         type=Path,
-        default=Path("models/real_weedmap_multispectral_weighted_ce.pth"),
+        default=None,
     )
     parser.add_argument("--sample-index", type=int, default=0)
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path(
-            "outputs/real_weedmap_prediction_multispectral_weighted_ce.png"
-        ),
+        default=None,
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.model == "small_unet":
+        args.model_path = args.model_path or Path(
+            "models/real_weedmap_multispectral_weighted_ce.pth"
+        )
+        args.output = args.output or Path(
+            "outputs/real_weedmap_prediction_multispectral_weighted_ce.png"
+        )
+    else:
+        args.model_path = args.model_path or Path(
+            f"models/real_weedmap_{args.model}_{args.input_type}_{args.loss}.pth"
+        )
+        args.output = args.output or Path(
+            f"outputs/real_weedmap_prediction_{args.model}_{args.input_type}_{args.loss}.png"
+        )
+    return args
 
 
 def select_device():
@@ -153,7 +168,10 @@ def main():
 
     image, label = dataset[args.sample_index]
     in_channels = 3 if args.input_type == "rgb" else 5
-    model = SmallUNet(in_channels=in_channels, num_classes=NUM_CLASSES).to(device)
+    model_class = (
+        SmallUNet if args.model == "small_unet" else MobileNetV2ShallowUNet
+    )
+    model = model_class(in_channels=in_channels, num_classes=NUM_CLASSES).to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.eval()
 

@@ -12,6 +12,10 @@
 
 多光谱输入包含 G、R、RedEdge、NIR 和 NDVI 五个通道。RedEdge、NIR 和植被指数能补充 RGB 中不明显的植被光谱信息，因此先用 multispectral 建立更贴近 WeedMap 数据特点的真实数据基线。
 
+## MobileNetV2ShallowUNet 方案 A
+
+方案 A 是低风险的第一版结构改造：保留原 U-Net 的 C1/C2、两级 Decoder 和三分类 head，仅以 MobileNetV2-style B1～B6 替换后续 `enc2` 与 bottleneck。它用于验证浅层 MobileNetV2-style encoder 能否在当前五通道 WeedMap 分割任务中跑通；尚未使用完整 B1～B17，因此不是论文完整版本。现有实验仍默认使用 `SmallUNet`，新模型需显式选择 `--model mobilenetv2_shallow_unet`，其默认权重和 history 文件名与原模型分开。本阶段只完成实现和 shape 检查，尚无新模型训练结果；完整方案 B 留待后续。
+
 ## 为什么使用 weighted_ce
 
 真实农田图像通常存在明显类别不平衡，background 像素较多，weed 像素较少。默认使用 background=1.0、crop=4.0、weed=8.0 的 weighted cross entropy，提高作物和杂草误分类的代价，减少训练被背景类别主导的风险。最终效果仍需结合各类别 IoU 判断。
