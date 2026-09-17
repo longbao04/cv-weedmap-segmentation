@@ -133,6 +133,24 @@ python visualize_yolo_detection_labels.py
 
 默认在 `RedEdge_004_frame0070` 的 RGB 图上以绿色绘制 crop 框、红色绘制 weed 框，保存到 `outputs/yolo_label_visualization_RedEdge_004_frame0070.png`。可用 `--dataset-dir`、`--split`、`--sample-name` 和 `--output` 指定其他样本及输出路径。
 
+### YOLO smoke test
+
+使用已准备好的 YOLO 检测数据和本地 `yolov8n.pt` 权重，运行一轮 smoke test：
+
+```bash
+yolo detect train \
+  model=yolov8n.pt \
+  data=data/yolo_weedmap_detect/data.yaml \
+  epochs=1 \
+  imgsz=480 \
+  batch=4 \
+  device=mps \
+  project=runs/yolo_weedmap \
+  name=smoke_test
+```
+
+本次 smoke test 只验证 YOLO 数据格式和训练流程可用，不用于与 U-Net 正式比较。YOLO 标签由 segmentation mask 自动转换，并非人工 bbox 标注，后续检测结果需要谨慎解释。结果记录见 [`real_experiment_notes.md`](real_experiment_notes.md)。
+
 ## 训练真实 WeedMap U-Net
 
 使用本地真实 WeedMap 数据、现有 `WeedMapDataset` 和 `SmallUNet` 训练三分类模型：

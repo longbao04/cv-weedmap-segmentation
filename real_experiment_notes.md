@@ -430,10 +430,28 @@ Sample index=0 的 total error pixels 从 5812 降至 3746，overall error rate 
 
 当前 U-Net 已完成 background/crop/weed 三类分割；预测错误主要出现在 crop/weed 边界、小目标 weed 和植物混杂区域，boundary weighted CE 后边界错误有所减少。这说明**普通 U-Net 在稀疏、小目标、边界破碎场景下存在局限**，不能简单推断 U-Net 不适合本任务。
 
-下一步保留 **U-Net / boundary-aware U-Net** 像素级分割路线，用于杂草区域和施药区域估计；增加 **YOLO 系列**作为稀疏作物/杂草目标定位、实时识别和计数的对照路线。尚未完成 YOLO 训练与同数据对比，因此当前结果仅提示其值得验证，不能据此否定 U-Net 或声称 YOLO 更优。
+下一步保留 **U-Net / boundary-aware U-Net** 像素级分割路线，用于杂草区域和施药区域估计；增加 **YOLO 系列**作为稀疏作物/杂草目标定位、实时识别和计数的对照路线。YOLO 目前只完成一轮 smoke test，尚未进行正式的同数据对比，因此不能据此否定 U-Net 或声称 YOLO 更优。
 
-参考上述水稻杂草识别论文的思路，密集、片状杂草优先考虑语义分割，稀疏、点状杂草可验证目标检测。因此新增 YOLO detect baseline 的数据准备脚本 `prepare_yolo_detection_dataset.py`：使用共享样本列表及 seed=0 的 U-Net 划分，将有效 crop/weed 像素的连通区域转为检测框，供后续对照实验使用。转换时按连通区域面积、框宽高、框面积占比过滤，也可选择跳过接触图像边界的框。当前 YOLO baseline 是由像素级 mask 转换得到的检测对照实验，不是人工标注的标准检测数据集，因此结果需要谨慎解释。当前仅新增数据转换流程，尚无 YOLO 训练或检测结果。
+参考上述水稻杂草识别论文的思路，密集、片状杂草优先考虑语义分割，稀疏、点状杂草可验证目标检测。因此新增 YOLO detect baseline 的数据准备脚本 `prepare_yolo_detection_dataset.py`：使用共享样本列表及 seed=0 的 U-Net 划分，将有效 crop/weed 像素的连通区域转为检测框，供后续对照实验使用。转换时按连通区域面积、框宽高、框面积占比过滤，也可选择跳过接触图像边界的框。当前 YOLO 标签来自 segmentation mask 自动转换，不是人工 bbox 标注，因此后续结果需要谨慎解释。
 
 在训练 YOLO 前，需要先可视化由 mask 转换得到的 bbox 标签，确认目标框是否合理。可运行 `python visualize_yolo_detection_labels.py` 查看默认样本的 crop/weed 框。
 
 重新生成 YOLO bbox 数据集时，需要使用 `--overwrite` 避免新旧标签混合。
+
+## YOLO smoke test 结果
+
+- ultralytics version：`8.4.154`
+- model：`yolov8n.pt`
+- epochs：`1`
+- train images：`363`
+- val images：`91`
+- val instances：`3989`
+- inference speed：MPS 上约 `2.8 ms/image`
+
+| 类别 | mAP50 | mAP50-95 |
+| --- | ---: | ---: |
+| all | 0.179 | 0.0616 |
+| crop | 0.244 | — |
+| weed | 0.114 | — |
+
+这次 smoke test 仅用于验证 YOLO 数据格式和训练流程可用，不用于与 U-Net 正式比较。当前 YOLO 标签由 segmentation mask 自动转换，不是人工 bbox 标注；后续检测结果需要谨慎解释。
