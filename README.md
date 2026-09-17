@@ -16,6 +16,78 @@ WeedMap 的 sugar beet field（甜菜田）场景与导师提出的水稻/柑橘
 
 项目已用模拟数据跑通 U-Net 分割流程，并提供使用本地真实 WeedMap 数据训练的脚本。项目不包含或下载真实数据。数据理解摘要见 `dataset_notes.md`，后续安排见 `project_plan.md`，实验记录见 `synthetic_experiment_notes.md` 和 `real_experiment_notes.md`。
 
+## 当前真实 WeedMap 结果与路线
+
+以下训练结果均基于 WeedMap common split 的多光谱输入，三 seed（0/1/2）、20 epochs、batch size 2，并按验证集 mean IoU 选择各 seed 的 best checkpoint。表中为三 seed 均值 ± 样本标准差；提升均指百分点。VCR 是独立的场景评判指标，不属于模型训练结果。
+
+### 1. SmallUNet baseline
+
+`SmallUNet + weighted CE` 使用 background/crop/weed 类别权重 1/4/8，Mean IoU 为 74.78% ± 0.82%，Weed IoU 为 56.89% ± 2.06%。
+
+### 2. Loss 对比：Weighted CE / Focal Loss / Dice + CE
+
+| Loss（SmallUNet） | Mean IoU | Weed IoU |
+| --- | ---: | ---: |
+| Weighted CE | 74.78% ± 0.82% | 56.89% ± 2.06% |
+| Focal Loss | 74.00% ± 1.25% | 55.55% ± 1.72% |
+| Dice + CE | 74.45% ± 3.37% | 56.61% ± 6.31% |
+
+### 3. Boundary error analysis
+
+在 `SmallUNet + weighted CE` 的 sample index=0 上，距真实边界 5px 内的有效像素占 34.06%，却包含 95.18% 的错误。此项为单张样本分析，不能代替整体验证集指标。
+
+### 4. SmallUNet + boundary weighted CE r5_w4
+
+边界半径 5、边界权重 4.0 时，三 seed Mean IoU 为 75.17% ± 1.02%，Weed IoU 为 58.29% ± 0.92%。
+
+### 5. MobileNetV2ShallowUNet 方案 A
+
+方案 A 是 MobileNetV2-style shallow encoder 改造实验：保留当前 `SmallUNet` 的 C1/C2、两级 Decoder、skip connection 和 segmentation head，以浅层 inverted residual blocks B1～B6 替换原 `enc2` 和 bottleneck。它不是论文完整 MobileNetV2-U-Net 复现；完整 B1～B17 多尺度版本留作方案 B。搭配 weighted CE 时，三 seed Mean IoU 为 75.86% ± 1.22%，Weed IoU 为 59.03% ± 1.74%。
+
+### 6. MobileNetV2ShallowUNet + boundary weighted CE r5_w4
+
+设置：`model=mobilenetv2_shallow_unet`、`loss=boundary_weighted_ce`、`boundary_radius=5`、`boundary_weight=4.0`，类别权重 background 1.0、crop 4.0、weed 8.0。
+
+| Seed | Best epoch | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 20 | 96.91% | 76.97% | 97.20% | 73.41% | 60.30% |
+| 1 | 12 | 96.78% | 76.08% | 97.15% | 71.02% | 60.07% |
+| 2 | 18 | 97.25% | 77.07% | 97.44% | 74.69% | 59.10% |
+
+| 模型 / 损失 | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SmallUNet / weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
+| SmallUNet / boundary weighted CE r5_w4 | 96.79% ± 0.16% | 75.17% ± 1.02% | 97.15% ± 0.11% | 70.07% ± 2.41% | 58.29% ± 0.92% |
+| 方案 A / weighted CE | 96.53% ± 0.47% | 75.86% ± 1.22% | 96.80% ± 0.44% | 71.74% ± 2.76% | 59.03% ± 1.74% |
+| 方案 A / boundary weighted CE r5_w4 | **96.98% ± 0.24%** | **76.71% ± 0.55%** | **97.26% ± 0.16%** | **73.04% ± 1.86%** | **59.82% ± 0.64%** |
+| 相对 SmallUNet / weighted CE 提升（百分点） | +0.60 | +1.93 | +0.56 | +2.28 | +2.93 |
+
+目前最强语义分割结果来自 MobileNetV2ShallowUNet + boundary weighted CE r5_w4，在三 seed 上达到 Mean IoU 76.71% ± 0.55%、Weed IoU 59.82% ± 0.64%。这说明浅层 MobileNetV2-style encoder 与 boundary-aware loss 可以叠加提升，尤其对 weed 类识别更有帮助。
+
+### 7. VCR 植被覆盖率评判指标
+
+`VCR = vegetation pixels / valid pixels`，其中 vegetation pixels 满足 `NDVI > 0.2` 且 `label != 255`，valid pixels 满足 `label != 255`。
+
+| 场景 | 初始阈值 | 样本数 | 占 454 张比例 |
+| --- | --- | ---: | ---: |
+| sparse | VCR < 0.20 | 13 | 2.86% |
+| transition | 0.20 ≤ VCR ≤ 0.30 | 9 | 1.98% |
+| dense | VCR > 0.30 | 432 | 95.15% |
+
+common split 共 454 张，VCR 均值 0.7928、中位数 0.9116、最小值 0.0000、最大值 0.9999。阈值 0.20 / 0.30 是初始经验阈值，后续需结合人工样本检查和实际除草需求调整。
+
+### 8. YOLO / U-Net 路线选择标准
+
+无人机多光谱图像 → NDVI / 植物-土壤区分指标 → 计算 VCR → 判断 sparse / transition / dense：
+
+| 场景 | 候选路线 | 用途 |
+| --- | --- | --- |
+| sparse | YOLO | 单株/单簇定位和点状精准除草 |
+| transition | 同时测试 YOLO 与 U-Net，或人工确认 | 根据目标形态选择 |
+| dense | U-Net / MobileNetV2ShallowUNet | 区域 mask 和区域除草 |
+
+VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 目前仅有 smoke test，尚无与语义分割模型的正式同条件对比。
+
 ## 实验报告
 
 [`synthetic_segmentation_report.md`](synthetic_segmentation_report.md) 是 synthetic U-Net 分割实验总结报告，汇总了 baseline、class weights、训练稳定性、loss function 对比，以及 RGB 与 multispectral 输入对比结果。
