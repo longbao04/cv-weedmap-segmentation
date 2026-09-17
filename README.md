@@ -147,6 +147,14 @@ python visualize_real_weedmap_prediction.py
 
 脚本默认加载 `models/real_weedmap_multispectral_weighted_ce.pth`，读取过滤后的第 0 个 multispectral 样本，并将图片保存到 `outputs/real_weedmap_prediction_multispectral_weighted_ce.png`。终端会打印忽略标签 255 后的 pixel accuracy、background/crop/weed IoU 和 mean IoU。可通过 `--data-root`、`--input-type`、`--loss`、`--model-path`、`--sample-index`、`--sample-list-csv` 和 `--output` 调整运行参数；使用 RGB 输入时需要指定与三通道模型对应的权重文件。
 
+分析真实预测错误与 GroundTruth 边界的距离：
+
+```bash
+python analyze_boundary_errors.py
+```
+
+脚本默认使用 20 epochs best checkpoint、共同样本列表中的第 0 张 multispectral 样本，统计忽略标签 255 后的总错误率及距边界 1、3、5 像素内的错误数，并将六宫格可视化保存为 `outputs/boundary_error_analysis_sample0.png`。
+
 ## 真实 WeedMap loss 对比曲线
 
 使用已有的三份 multispectral、seed=0、20 epochs history CSV 绘制验证集 mean IoU 和 weed IoU 曲线：

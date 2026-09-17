@@ -306,6 +306,7 @@ Weighted CE 的平均 mean IoU 最高，为 74.78% ± 0.82%；平均 weed IoU �
 
 ## 下一步计划
 
+- 后续将通过 boundary error analysis 判断模型错误是否集中在 crop/weed 边界区域。
 - 后续可用 `python plot_real_loss_comparison.py` 生成真实 WeedMap loss 对比曲线图。
 - 可尝试调节 Dice + CE 的权重系数，例如 `CE + 0.5 Dice` 或 `CE + 2 Dice`，并增加 seed 验证稳定性。
 - 可尝试 30 epochs，但必须继续根据 val mean IoU 使用 best checkpoint；
