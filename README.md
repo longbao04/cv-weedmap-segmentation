@@ -46,6 +46,7 @@ cv-weedmap-segmentation/
 ├── synthetic_segmentation_report.md
 ├── inspect_dataset_structure.py
 ├── analyze_real_weedmap_labels.py
+├── analyze_vegetation_coverage.py
 ├── build_common_sample_list.py
 ├── visualize_sample_placeholder.py
 ├── visualize_real_weedmap_sample.py
@@ -114,6 +115,14 @@ python build_common_sample_list.py
 ```
 
 脚本扫描 8 个真实数据子集，只保留 RGB、G/R/RE/NIR/NDVI、彩色标签和 mask 均存在，且两种输入非全黑、标签含有效 crop/weed 前景的样本。结果保存到自动创建的 `splits/real_weedmap_common_samples.csv`，字段为 `sensor,subset_id,sample_id`；终端打印总数、各子集数量及 crop/weed 像素统计。可用 `--data-root` 和 `--output` 指定路径。
+
+统计 common split 中每张多光谱图像的有效区域 NDVI 植被覆盖率（VCR）：
+
+```bash
+python analyze_vegetation_coverage.py --ndvi-threshold 0.2
+```
+
+脚本按 seed=0 的 80/20 规则标记 train/val，输出 `outputs/weedmap_vegetation_coverage_summary.csv` 和 `outputs/weedmap_vegetation_coverage_histogram.png`，并打印总体统计。
 
 ## YOLO detect baseline 数据准备
 
