@@ -215,20 +215,22 @@ def main():
     parser.add_argument("--dataset-dir", type=Path, default=Path("data/yolo_weedmap_detect"))
     parser.add_argument("--output-csv", type=Path, default=Path("outputs/yolo_bbox_statistics.csv"))
     parser.add_argument("--assets-dir", type=Path, default=Path("reports/assets"))
+    parser.add_argument("--plot-prefix", default="")
     args = parser.parse_args()
 
     rows, boxes_per_image = collect(args.dataset_dir)
     write_csv(rows, args.output_csv)
     print_statistics(rows, boxes_per_image)
     args.assets_dir.mkdir(parents=True, exist_ok=True)
+    plot_prefix = f"{args.plot_prefix}_" if args.plot_prefix else ""
     plot_class_histogram(rows, "area_px", "BBox area (px²)", "YOLO bbox area distribution",
-                         args.assets_dir / "yolo_bbox_area_distribution.png")
-    plot_scatter(rows, args.assets_dir / "yolo_bbox_width_height_scatter.png")
+                         args.assets_dir / f"{plot_prefix}yolo_bbox_area_distribution.png")
+    plot_scatter(rows, args.assets_dir / f"{plot_prefix}yolo_bbox_width_height_scatter.png")
     plot_boxes_per_image(boxes_per_image,
-                         args.assets_dir / "yolo_boxes_per_image_distribution.png")
+                         args.assets_dir / f"{plot_prefix}yolo_boxes_per_image_distribution.png")
     plot_class_histogram(rows, "area_norm", "BBox / image area ratio",
                          "YOLO bbox / image area ratio distribution",
-                         args.assets_dir / "yolo_bbox_area_ratio_distribution.png")
+                         args.assets_dir / f"{plot_prefix}yolo_bbox_area_ratio_distribution.png")
     print(f"CSV saved: {args.output_csv}")
     print(f"Plots saved: {args.assets_dir}")
 
