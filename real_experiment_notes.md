@@ -620,3 +620,18 @@ VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此
 | B：weed-only r010 | 0.431 | 0.488 | 0.421 | 0.182 |
 
 在当前数据构建方式、YOLOv8n、5 epochs 和 seed=0 的设置下，weed-only detection 没有超过 crop+weed detection：后者在 weed precision、recall、mAP50 和 mAP50-95 上均更高。这不构成对 weed-only 路线的最终否定。当前 YOLO baseline 暂时保留 crop+weed detection 为主要检测设置，weed-only 作为对照实验记录；YOLO 仍是稀疏场景候选路线，当前主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4。
+
+### YOLO prediction visualization and confidence threshold observation
+
+`visualize_yolo_predictions.py` 对同一个 validation sample（`--sample-index 0`）比较训练 5 epochs 的 crop+weed r010 与 weed-only r010。可视化包含 RGB image、crop+weed r010 ground truth、crop+weed r010 prediction、weed-only r010 ground truth、weed-only r010 prediction。运行 `python visualize_yolo_predictions.py --sample-index 0 --conf 0.25 --iou 0.7`，输出 `outputs/yolo_prediction_comparison_sample0.png`。
+
+在 sample index=0 上，crop+weed r010 的预测框数量相对更克制，输出更干净，重复预测较少；weed-only r010 更倾向于产生密集的 weed 预测框，容易出现更多候选框或重复框。该现象与验证集定量结果方向一致：
+
+| 检测设置（weed class） | P | R | mAP50 | mAP50-95 |
+| --- | ---: | ---: | ---: | ---: |
+| crop+weed r010，5 epochs | 0.482 | 0.530 | 0.460 | 0.215 |
+| weed-only r010，5 epochs | 0.431 | 0.488 | 0.421 | 0.182 |
+
+confidence threshold 从 0.25 提高到 0.40 后，低置信度预测框明显减少，可视化结果更干净。这表明 confidence threshold 是 YOLO 推理阶段控制最终输出框数量的重要后处理参数。提高阈值可能减少误检和重复框，也可能增加漏检；因此目前不能简单认为 `conf=0.40` 是最优阈值，只能将其作为可视化观察和后续推理后处理调参的候选设置。可运行 `python visualize_yolo_predictions.py --sample-index 0 --conf 0.40 --iou 0.7` 对照；两次运行写入同一输出路径，需提前保留旧图才能并排查看。
+
+confidence filtering 和 NMS 属于 YOLO inference post-processing，不属于 backbone，也不属于 dataset bbox filtering；它们与 semantic mask → connected components → bbox 过程中的数据集过滤不同。当前 YOLO baseline 暂时保留 crop+weed r010 作为主要检测设置，weed-only r010 作为对照实验记录。YOLO 仍定位为稀疏场景候选路线和 detection pipeline 探索；当前项目主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4 语义分割。以上仅是 sample index=0 的可视化观察，不能替代整个验证集指标；整体结论仍以 validation metrics 为主。
