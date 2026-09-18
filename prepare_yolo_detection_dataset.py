@@ -90,7 +90,10 @@ def yolo_lines(
     min_box_width=4,
     min_box_height=4,
     skip_border_touching=False,
+    target_classes="crop_weed",
 ):
+    if target_classes not in ("crop_weed", "weed_only"):
+        raise ValueError(f"Unsupported target classes: {target_classes}")
     height, width = label.shape
     lines = []
     counts = {
@@ -100,7 +103,12 @@ def yolo_lines(
         "skipped huge boxes": 0,
         "skipped border boxes": 0,
     }
-    for pixel_class, yolo_class, name in ((1, 0, "crop"), (2, 1, "weed")):
+    classes = (
+        ((1, 0, "crop"), (2, 1, "weed"))
+        if target_classes == "crop_weed"
+        else ((2, 0, "weed"),)
+    )
+    for pixel_class, yolo_class, name in classes:
         for xmin, ymin, xmax, ymax, area in connected_components(
             label == pixel_class, 1
         ):
@@ -147,7 +155,10 @@ def prepare_dataset(
     min_box_height=4,
     skip_border_touching=False,
     overwrite=False,
+    target_classes="crop_weed",
 ):
+    if target_classes not in ("crop_weed", "weed_only"):
+        raise ValueError(f"Unsupported target classes: {target_classes}")
     if min_area < 1:
         raise ValueError("--min-area must be at least 1")
     if not 0 < max_box_area_ratio <= 1:
@@ -216,6 +227,7 @@ def prepare_dataset(
                 min_box_width,
                 min_box_height,
                 skip_border_touching,
+                target_classes,
             )
 
             # Prefix with the subset name to keep frame IDs from different
@@ -236,15 +248,16 @@ def prepare_dataset(
                 counts[key] += image_counts[key]
             counts["empty"] += not lines
 
-    (output_dir / "data.yaml").write_text(
+    yaml_text = (
         f"path: {output_dir.as_posix()}\n"
         "train: images/train\n"
         "val: images/val\n"
-        "names:\n"
-        "  0: crop\n"
-        "  1: weed\n",
-        encoding="utf-8",
     )
+    if target_classes == "weed_only":
+        yaml_text += 'nc: 1\nnames: ["weed"]\n'
+    else:
+        yaml_text += "names:\n  0: crop\n  1: weed\n"
+    (output_dir / "data.yaml").write_text(yaml_text, encoding="utf-8")
     print(f"train image count: {len(splits['train'])}")
     print(f"val image count: {len(splits['val'])}")
     print(f"crop box count: {counts['crop']}")
@@ -272,6 +285,9 @@ def main():
     parser.add_argument("--min-box-width", type=int, default=4)
     parser.add_argument("--min-box-height", type=int, default=4)
     parser.add_argument("--skip-border-touching", action="store_true")
+    parser.add_argument(
+        "--target-classes", choices=("crop_weed", "weed_only"), default="crop_weed"
+    )
     parser.add_argument("--overwrite", action="store_true", default=False)
     args = parser.parse_args()
     prepare_dataset(
@@ -285,6 +301,7 @@ def main():
         args.min_box_height,
         args.skip_border_touching,
         args.overwrite,
+        args.target_classes,
     )
 
 
