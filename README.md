@@ -102,6 +102,36 @@ VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此
 
 这些数值将作为后续 MobileNetV3-YOLOv8n 轻量化改造的对照基线。该改造目前只是计划，尚未实现；后续若改造 YOLOv8n backbone，需要在一致条件下同时比较 detection metrics（Precision、Recall、mAP50、mAP50-95）和 lightweight metrics（Params、GFLOPs、Model Size、inference speed）。当前项目主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4 语义分割。
 
+## Next-stage experiment plan
+
+### 1. Current completed stage
+
+**A. Semantic segmentation main line.** 当前最强设置是 `MobileNetV2ShallowUNet + boundary weighted CE r5_w4`：Mean IoU = 76.71% ± 0.55%，Weed IoU = 59.82% ± 0.64%，Pixel accuracy = 96.98% ± 0.24%。这是目前 WeedMap common split 上最强的语义分割设置；相比 `SmallUNet + weighted CE`，Mean IoU 和 Weed IoU 均有提升。
+
+**B. YOLO detection auxiliary line.** 当前最佳 YOLO baseline 是 `YOLOv8n crop+weed r010`：Precision = 0.50539，Recall = 0.58950，mAP50 = 0.53062，mAP50-95 = 0.29557，Params ≈ 3.01M，GFLOPs ≈ 4.61，Model size ≈ 6.21 MB。检测支线已完成 bbox statistics、r020/r010 对比、weed-only 对照实验、prediction visualization 和 lightweight baseline summary。
+
+### 2. Short-term next experiments
+
+**A. Segmentation robustness check.** 后续增加 random seeds，检查更多 validation samples 的预测图，分析错误是否仍主要集中在 crop/weed 边界区域，并统计最强分割模型的参数量、模型大小和推理速度。这些是后续验证计划，当前不启动训练。
+
+**B. YOLO post-processing analysis.** 后续分析 `YOLOv8n crop+weed r010` 的 confidence threshold 对预测框数量、误检和漏检的影响，NMS IoU threshold 对重复框的影响，并检查 PR curve、F1 curve、confusion matrix 和 inference speed。confidence filtering 与 NMS 属于 inference post-processing，不属于 backbone，也不是 dataset bbox filtering。
+
+**C. MobileNetV3-YOLOv8n design.** 在 YOLOv8n baseline 稳定后，可尝试用 MobileNetV3-style lightweight backbone 替换或改造 YOLOv8n backbone，保留 YOLOv8 的 Neck、Detect Head 和 anchor-free detection framework；在相同评估条件下比较 Precision、Recall、mAP50、mAP50-95、Params、GFLOPs、Model size 和 Inference speed。MobileNetV3-YOLOv8n 目前仅是 future work / planned experiment，尚未实现。
+
+### 3. Medium-term paper/report structure
+
+1. Dataset and preprocessing
+2. Multispectral semantic segmentation
+3. Boundary-aware loss analysis
+4. Lightweight MobileNetV2-style U-Net
+5. Detection dataset construction from semantic masks
+6. YOLOv8n detection baseline
+7. Future lightweight YOLO design
+
+### 4. Overall conclusion
+
+当前项目主线仍是语义分割，因为 WeedMap common split 中 dense vegetation samples 占多数。YOLO 检测支线主要作为 sparse vegetation scenarios 的候选路线，以及后续 MobileNetV3-YOLOv8n 轻量化检测研究的基础。
+
 ## 实验报告
 
 [`synthetic_segmentation_report.md`](synthetic_segmentation_report.md) 是 synthetic U-Net 分割实验总结报告，汇总了 baseline、class weights、训练稳定性、loss function 对比，以及 RGB 与 multispectral 输入对比结果。
