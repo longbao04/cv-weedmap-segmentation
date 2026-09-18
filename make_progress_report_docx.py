@@ -197,7 +197,7 @@ def build():
         ("方案 A + Weighted CE", "96.53% ± 0.47%", "75.86% ± 1.22%", "96.80% ± 0.44%", "71.74% ± 2.76%", "59.03% ± 1.74%"),
         ("方案 A + boundary CE r5_w4", "96.98% ± 0.24%", "76.71% ± 0.55%", "97.26% ± 0.16%", "73.04% ± 1.86%", "59.82% ± 0.64%"),
     ], 7.4)
-    paragraph(doc, "相对原 SmallUNet + Weighted CE baseline 的均值提升（百分点）：Pixel Accuracy +0.60、Mean IoU +1.93、Background IoU +0.56、Crop IoU +2.28、Weed IoU +2.93。结果表明方案 A 的浅层 encoder 改造与 boundary weighted CE 在当前实验中可以叠加提升。")
+    paragraph(doc, "相对 SmallUNet + Weighted CE baseline，Mean IoU 从 74.78% ± 0.82% 提升至 76.71% ± 0.55%（+1.93 个百分点）；Weed IoU 从 56.89% ± 2.06% 提升至 59.82% ± 0.64%（+2.93 个百分点）。结果表明方案 A 的浅层 encoder 改造与 boundary weighted CE 在当前实验中可以叠加提升，尤其对 weed 类识别更有帮助。")
 
     section(doc, 10, "VCR 植被覆盖率评判指标")
     paragraph(doc, "VCR = vegetation pixels / valid pixels。其中 vegetation pixels 指 NDVI > 0.2 且 label != 255 的像素；valid pixels 指 label != 255 的像素。VCR 用于场景划分，不参与分割模型训练或 IoU 计算。")
@@ -206,9 +206,21 @@ def build():
         ("transition", "0.20 ≤ VCR ≤ 0.30", "9 / 454", "≈ 1.98%"),
         ("dense", "VCR > 0.30", "432 / 454", "≈ 95.15%"),
     ], [3.5, 6, 3.5, 4], 8.8)
-    paragraph(doc, "WeedMap common split 的 454 张样本中，VCR 均值 0.7928、中位数 0.9116、最小值 0.0000、最大值 0.9999。绝大多数样本为高植被覆盖场景。0.20 和 0.30 是初始经验阈值，后续需结合人工样本检查与实际除草需求调整。")
+    paragraph(doc, "WeedMap common split 共 454 张样本：sparse 13 张、transition 9 张、dense 432 张；VCR 均值 0.7928、中位数 0.9116、最小值 0.0000、最大值 0.9999。dense 占 432 / 454 ≈ 95.15%，sparse 占 13 / 454 ≈ 2.86%，transition 占 9 / 454 ≈ 1.98%。当前绝大多数样本属于高植被覆盖场景，因此继续优化 U-Net / MobileNetV2ShallowUNet 语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的候选路线或后续扩展。0.20 和 0.30 是初始经验阈值。")
 
-    section(doc, 11, "YOLO / U-Net 路线选择标准")
+    section(doc, 11, "YOLO detection pipeline 的两个阶段")
+    doc.add_heading("A Detection Dataset 构建阶段", level=2)
+    paragraph(doc, "WeedMap semantic mask → target mask → connected components → component bbox → bbox statistics → visualization / statistical analysis → dataset bbox filtering rules → YOLO labels → Detection Dataset。")
+    paragraph(doc, "这一阶段的 filtering 是数据集构建阶段的 bbox 清洗：先统计并可视化连通域候选框，再根据 bbox filtering rules 从 semantic mask 自动生成较合理的 YOLO 训练标签。")
+    doc.add_heading("B YOLO 训练与推理阶段", level=2)
+    paragraph(doc, "Detection Dataset → YOLOv8n smoke test / training → network candidate predictions → confidence filtering → NMS → final bounding boxes。")
+    paragraph(doc, "这一阶段的 filtering 是模型推理阶段的预测框后处理。YOLO 网络输出候选框、类别和置信度；confidence filtering 去掉低置信度框，NMS 去掉高度重叠的重复框。confidence filtering 和 NMS 不属于 backbone，也不属于 U-Net 或 YOLO 的特征提取网络。")
+
+    section(doc, 12, "YOLOv8n 的定位与标签局限")
+    paragraph(doc, "YOLOv8n 当前只作为 mask → connected components → bbox → YOLO dataset → training/inference 的 pipeline smoke test，不是论文 MobileNetV3-YOLOv3 的复现。")
+    paragraph(doc, "WeedMap 原始标签是 semantic segmentation mask，不包含 instance identity。因此 connected component 只能作为 bbox 自动生成的近似方法，不能默认一个 connected component 就一定对应一株独立 weed 或 crop。密集或粘连区域中，大面积 component 可能包含多个植株或片状杂草区域。")
+
+    section(doc, 13, "YOLO / U-Net 路线选择标准")
     paragraph(doc, "无人机多光谱图像 → NDVI / 植物-土壤区分指标 → 计算 VCR → 判断 sparse / transition / dense → 选择定位或区域分割路线。")
     table(doc, ["VCR 场景", "候选路线", "除草用途"], [
         ("sparse", "YOLO", "单株或单簇定位，点状精准除草"),
@@ -217,10 +229,10 @@ def build():
     ], [3, 6.8, 7.2], 8.6)
     paragraph(doc, "common split 中 dense 占约 95.15%，因此当前阶段以 U-Net / MobileNetV2ShallowUNet 语义分割为主路线有数据依据。YOLO 适合作为低覆盖稀疏场景的候选路线或后续扩展；目前仅完成 smoke test，尚无与 U-Net 在相同条件下的正式效果对比。")
 
-    section(doc, 12, "给老师汇报用总结")
-    paragraph(doc, "老师，目前我已经完成从模拟数据到真实 WeedMap 多光谱无人机数据的语义分割流程。前期用 NDVI、NDRE 模拟作物、杂草和土壤的光谱差异，并在 synthetic 数据上训练 U-Net。普通 CE 容易忽视 weed，加入 class weights 后 Weed IoU 大幅提升。随后我整理真实 WeedMap Tiles，验证标签映射；本地 GroundTruth_color 的语义最清楚，因此 Dataset 由它生成 0/1/2 标签，mask=255 作为 ignore 区域。严格公平的 RGB 与多光谱对比使用相同的 454 个样本，其中训练 363 个、验证 91 个。多光谱的 Mean IoU 和 Weed IoU 均高于 RGB，说明额外光谱通道对杂草识别有帮助。")
-    paragraph(doc, "真实数据中，Weighted CE 是稳定的基础 loss。分析 sample index=0 后发现，5px 边界区域包含 Weighted CE 的 95.18% 错误，因此加入 boundary weighted CE。SmallUNet 的 r5_w4 三 seed 平均 Mean IoU 达到 75.17%，Weed IoU 达到 58.29%。接着实现 MobileNetV2ShallowUNet 方案 A：这是浅层 MobileNetV2-style encoder 改造，保留当前两级 U-Net decoder，并非论文完整 MobileNetV2-U-Net 复现。方案 A 单用 Weighted CE 已优于原 SmallUNet；与 boundary weighted CE r5_w4 结合后，三 seed 平均 Mean IoU 为 76.71% ± 0.55%，Weed IoU 为 59.82% ± 0.64%，是目前最好的语义分割结果。")
-    paragraph(doc, "我还新增了植被覆盖率 VCR 作为模型路线选择指标，通过 NDVI 区分植物与土壤并计算每张图的覆盖率。WeedMap common split 中 dense 样本占 95.15%，说明当前数据以高植被覆盖场景为主，继续优化 U-Net / MobileNetV2ShallowUNet 语义分割是合理的；YOLO 更适合作为低覆盖稀疏场景的补充路线，用于单株或单簇定位与点状精准除草。VCR 阈值仍需结合人工检查和实际作业需求校准。")
+    section(doc, 14, "给老师汇报用总结")
+    paragraph(doc, "老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我整理了真实 WeedMap Tiles 数据并完成标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。严格公平的 RGB 与 multispectral 对比使用相同的 454 个样本，其中 train 363 个、val 91 个。Multispectral 的 mean IoU 和 weed IoU 均高于 RGB，说明多光谱通道对杂草识别更有帮助。")
+    paragraph(doc, "在真实数据实验中，Weighted CE 是最稳定的基础 loss。进一步分析 sample index=0 后发现，5px 边界区域包含 Weighted CE 的 95.18% 错误，因此我加入了 boundary weighted CE。SmallUNet 上 boundary weighted CE r5_w4 的三 seed 平均 Mean IoU 达到 75.17%，Weed IoU 达到 58.29%。之后我实现了 MobileNetV2ShallowUNet 方案 A，它不是论文完整 MobileNetV2-U-Net 复现，而是浅层 MobileNetV2-style encoder 改造，保留当前两级 U-Net decoder。该模型在 weighted CE 下已经优于原 SmallUNet。进一步将 MobileNetV2ShallowUNet 与 boundary weighted CE r5_w4 结合后，三 seed 平均 Mean IoU 达到 76.71% ± 0.55%，Weed IoU 达到 59.82% ± 0.64%，是目前最好的结果。说明浅层 MobileNetV2-style encoder 与 boundary-aware loss 可以叠加提升，尤其对 weed 类识别更有帮助。")
+    paragraph(doc, "另外，我新增了一个基于植被覆盖率 VCR 的模型选择指标。通过 NDVI 区分植物与土壤，并计算每张图像的植被覆盖率。统计结果显示 WeedMap common split 中 dense 样本占 95.15%，说明当前数据集以密集植被覆盖场景为主，因此继续优化 U-Net / MobileNetV2ShallowUNet 这类语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充路线，用于单株或单簇定位和点状精准除草。")
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     doc.save(OUTPUT)
