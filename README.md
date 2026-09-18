@@ -302,6 +302,25 @@ python visualize_real_weedmap_prediction.py
 
 脚本默认加载 `models/real_weedmap_multispectral_weighted_ce.pth`，读取过滤后的第 0 个 multispectral 样本，并将图片保存到 `outputs/real_weedmap_prediction_multispectral_weighted_ce.png`。终端会打印忽略标签 255 后的 pixel accuracy、background/crop/weed IoU 和 mean IoU。可通过 `--data-root`、`--input-type`、`--loss`、`--model-path`、`--sample-index`、`--sample-list-csv` 和 `--output` 调整运行参数；使用 RGB 输入时需要指定与三通道模型对应的权重文件。
 
+同一样本对比主要模型的预测效果：`python compare_best_model_predictions.py --sample-index 0`。脚本使用 WeedMap common split、固定 multispectral 输入及 seed 0 验证子集，输出 `outputs/best_model_prediction_comparison_sample0.png` 和各模型单样本指标，辅助展示 boundary loss 与 MobileNetV2ShallowUNet 的改进；缺失的 checkpoint 会在图中标注并在终端提示。
+
+### 主要模型预测结果可视化对比
+
+在同一个 WeedMap common validation sample（seed 0，sample index=0）上，对比 RGB visualization、NDVI、Ground Truth、四个主要语义分割模型的 prediction 和对应 error map。下表是这张样本的指标，非整体验证集结果。
+
+| 模型 / 损失 | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SmallUNet + weighted CE | 97.95% | 71.66% | 98.36% | 70.37% | 46.24% |
+| SmallUNet + boundary CE r5_w4 | 97.80% | 68.20% | 98.25% | 56.38% | 49.96% |
+| MobileNetV2ShallowUNet + weighted CE | 98.24% | 74.20% | 98.62% | 72.50% | 51.49% |
+| MobileNetV2ShallowUNet + boundary CE r5_w4 | 98.21% | 74.45% | 98.38% | 63.04% | **61.92%** |
+
+![主要模型在 sample index=0 上的预测与错误图对比](reports/assets/best_model_prediction_comparison_sample0.png)
+
+在 sample index=0 上，MobileNetV2ShallowUNet + boundary CE r5_w4 获得最高的 weed IoU，为 61.92%，说明该组合在该样本上对 weed 类识别更有帮助。MobileNetV2ShallowUNet + weighted CE 的 mean IoU 为 74.20%，MobileNetV2ShallowUNet + boundary CE r5_w4 的 mean IoU 为 74.45%，二者接近，但 boundary loss 明显提高了该样本上的 weed IoU。
+
+这是单个 validation sample 的可视化对比，只用于定性展示和辅助解释；最终整体结论仍以三 seed 验证集平均结果为主。目前主结果为 MobileNetV2ShallowUNet + boundary weighted CE r5_w4：Mean IoU 76.71% ± 0.55%，Weed IoU 59.82% ± 0.64%。
+
 分析真实预测错误与 GroundTruth 边界的距离：
 
 ```bash
