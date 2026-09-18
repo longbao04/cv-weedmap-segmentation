@@ -658,7 +658,7 @@ Decoder 保持：`center 90×120×64 → up2 180×240×32 → concat e2 180×240
 | 模型 / 差值 | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | SmallUNet weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
-| MobileNetV2ShallowUNet 方案 A weighted CE | 约 96.53% ± 0.47% | 约 75.86% ± 1.22% | 约 96.80% ± 0.44% | 约 71.74% ± 2.76% | 约 59.03% ± 1.74% |
+| MobileNetV2ShallowUNet 方案 A weighted CE | 96.53% ± 0.47% | 75.86% ± 1.22% | 96.80% ± 0.44% | 71.74% ± 2.76% | 59.03% ± 1.74% |
 | 方案 A 相对提升（百分点） | +0.15 | +1.08 | +0.10 | +0.98 | +2.14 |
 
 ### seed2 best checkpoint 的 sample0 可视化结果
@@ -685,7 +685,7 @@ sample0 是单张样本，不能代替整体验证集或三 seed 统计。方案
 | 1 | 12 | 96.78% | 76.08% | 97.15% | 71.02% | 60.07% |
 | 2 | 18 | 97.25% | 77.07% | 97.44% | 74.69% | 59.10% |
 
-### 与前序主线对比
+### 三 seed 均值 ± 样本标准差及与前序主线对比
 
 表中为三 seed 均值 ± 样本标准差；最后一行是相对 `SmallUNet + weighted CE` 的百分点提升。
 
@@ -718,10 +718,20 @@ WeedMap common split 共 454 张；VCR 均值 0.7928、中位数 0.9116、最小
 | 场景 | 候选路线 | 用途 |
 | --- | --- | --- |
 | sparse | YOLO | 单株/单簇定位和点状精准除草 |
-| transition | 同时测试 YOLO 与 U-Net，或人工确认 | 根据目标形态选择 |
 | dense | U-Net / MobileNetV2ShallowUNet | 区域 mask 和区域除草 |
+| transition | 同时测试 YOLO 与 U-Net，或人工确认 | 根据目标形态选择 |
 
 VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 目前只有 smoke test，尚未与 U-Net 在相同条件下正式比较。
+
+### YOLO 检测流程：数据集构建阶段与推理后处理阶段
+
+**A. Detection Dataset 构建：** WeedMap semantic mask → target mask → connected components → component bbox → bbox statistics → visualization / statistical analysis → dataset bbox filtering rules → YOLO labels → Detection Dataset。
+
+WeedMap 原始标签是 semantic segmentation mask，不包含 instance identity。connected component 只是从 mask 自动生成 bbox 的近似方法：稀疏场景的独立小型 component 更可能接近单株或单簇，但不能默认每个 component 就是一株 weed 或 crop；密集、粘连区域的大面积 component 可能包含多个植株或片状杂草区域，不宜解释为单株。此处 filtering 是**数据集构建阶段的 bbox 清洗**，用于生成较合理的 YOLO 训练标签。最终确定小框过滤阈值前，应统计 bbox width、height、area、aspect ratio、bbox/image area ratio 分布，并结合可视化检查；当前脚本的固定像素默认值未经这一步验证，不能视为最终规则，以免误删真实的小 weed。
+
+**B. YOLO 训练 / 推理：** Detection Dataset → YOLOv8n smoke test / training → network candidate predictions → confidence filtering → NMS → final bounding boxes。
+
+YOLO 网络输出候选框、类别和置信度。confidence filtering 去掉低置信度预测框，NMS 去掉高度重叠的重复预测框。两者是**模型推理阶段的预测框后处理**，不属于 backbone 或 U-Net / YOLO 特征提取网络，与 A 阶段的 bbox 清洗不同。当前 YOLOv8n 只验证 mask → connected components → bbox → YOLO dataset → training/inference 流程，不是论文 MobileNetV3-YOLOv3 复现。当前脚本以 crop + weed 两类做流程验证，最终检测任务是 weed-only 还是 crop + weed 仍待确认。common split 中 dense 占多数，当前主线仍是 U-Net / MobileNetV2ShallowUNet 语义分割；YOLO 是稀疏场景候选和辅助探索路线，暂不扩展复杂 sparse/dense routing 算法。
 
 ## 28. 真实预测可视化与误差分析
 
@@ -778,7 +788,7 @@ VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此
 13. 当前可将 `multispectral + weighted CE + class weights 1/4/8 + 20 epochs + best checkpoint` 作为后续 baseline。
 14. 20 epochs 的三个 seed 均在 Epoch 15 取得 best checkpoint，mean IoU 为 73.88%～75.47%，weed IoU 均超过 54%；多 seed 平均 mean IoU 为 74.78% ± 0.82%，weed IoU 为 56.89% ± 2.06%。
 15. Loss 多 seed 对比中，Weighted CE 的平均 mean IoU（74.78% ± 0.82%）和 weed IoU（56.89% ± 2.06%）均最高；Dice + CE 的 seed=2 明显下降，稳定性仍需验证。
-16. Boundary error analysis 显示，sample index=0 中 5px 边界区域占有效像素 34.06%，却包含 Weighted CE 的 95.18% 错误；boundary weighted CE 将该样本边界错误率从 14.48% 降至 9.50%。
+16. Boundary error analysis 显示，sample index=0 中 5px 边界区域占有效像素 34.06%，却包含 Weighted CE 的 95.18% 错误；boundary weighted CE r5_w3 将该样本边界错误率从 14.48% 降至 9.50%。
 17. 在 `SmallUNet` 的 boundary loss 调参中，r5_w4 是较优候选：三 seed 平均 Pixel Accuracy = 96.79% ± 0.16%、Mean IoU = 75.17% ± 1.02%、Weed IoU = 58.29% ± 0.92%。相比 r5_w3 的 mean IoU（75.08% ± 1.10%）和 weed IoU（57.66% ± 1.58%）仅有小幅提升，weed IoU 更稳定；Weighted CE 保留为稳定 baseline。
 18. `MobileNetV2ShallowUNet` 方案 A 在原 weighted CE 设置下，三 seed 平均 Mean IoU 为 75.86% ± 1.22%、Weed IoU 为 59.03% ± 1.74%。方案 A 是浅层 MobileNetV2-style encoder 改造，不是论文完整 MobileNetV2-U-Net 复现；完整 B1～B17 多尺度版本留作方案 B。
 19. 目前最强语义分割结果来自 `MobileNetV2ShallowUNet + boundary weighted CE r5_w4`，三 seed Mean IoU 为 76.71% ± 0.55%、Weed IoU 为 59.82% ± 0.64%。相对原 SmallUNet + weighted CE baseline 分别提升 1.93 和 2.93 个百分点，说明浅层 MobileNetV2-style encoder 与 boundary-aware loss 可以叠加提升，尤其对 weed 类识别更有帮助。

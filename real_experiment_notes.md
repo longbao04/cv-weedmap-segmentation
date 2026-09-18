@@ -456,7 +456,7 @@ Decoder 保持：`center 90×120×64 → up2 180×240×32 → concat e2 180×240
 | 模型 / 差值 | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | SmallUNet weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
-| MobileNetV2ShallowUNet 方案 A weighted CE | 约 96.53% ± 0.47% | 约 75.86% ± 1.22% | 约 96.80% ± 0.44% | 约 71.74% ± 2.76% | 约 59.03% ± 1.74% |
+| MobileNetV2ShallowUNet 方案 A weighted CE | 96.53% ± 0.47% | 75.86% ± 1.22% | 96.80% ± 0.44% | 71.74% ± 2.76% | 59.03% ± 1.74% |
 | 方案 A 相对提升（百分点） | +0.15 | +1.08 | +0.10 | +0.98 | +2.14 |
 
 ### seed2 best checkpoint 的 sample0 可视化结果
@@ -483,7 +483,7 @@ Decoder 保持：`center 90×120×64 → up2 180×240×32 → concat e2 180×240
 | 1 | 12 | 96.78% | 76.08% | 97.15% | 71.02% | 60.07% |
 | 2 | 18 | 97.25% | 77.07% | 97.44% | 74.69% | 59.10% |
 
-### 与前序主线对比
+### 三 seed 均值 ± 样本标准差及与前序主线对比
 
 表中为三 seed 均值 ± 样本标准差；差值为相对原 `SmallUNet + weighted CE` 的百分点。
 
@@ -499,7 +499,7 @@ Decoder 保持：`center 90×120×64 → up2 180×240×32 → concat e2 180×240
 
 ## VCR 植被覆盖率评判指标
 
-`VCR = vegetation pixels / valid pixels`。其中 vegetation pixels 为 `NDVI > 0.2` 且 `label != 255` 的像素，valid pixels 为 `label != 255` 的像素。VCR 用于场景划分，不参与上述模型训练指标计算。
+`VCR = vegetation pixels / valid pixels`。其中 vegetation pixels 为 `NDVI > 0.2` 且 `label != 255` 的像素，valid pixels 为 `label != 255` 的像素。VCR 用于场景划分，不参与模型训练指标计算。
 
 | 初始场景 | VCR 范围 | 样本数 | 占比 |
 | --- | --- | ---: | ---: |
@@ -516,10 +516,20 @@ WeedMap common split 共 454 张；VCR 均值 0.7928、中位数 0.9116、最小
 | 场景 | 候选路线 | 用途 |
 | --- | --- | --- |
 | sparse | YOLO | 单株/单簇定位和点状精准除草 |
-| transition | 同时测试 YOLO 与 U-Net，或人工确认 | 根据目标形态选择 |
 | dense | U-Net / MobileNetV2ShallowUNet | 区域 mask 和区域除草 |
+| transition | 同时测试 YOLO 与 U-Net，或人工确认 | 根据目标形态选择 |
 
 VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 目前只有 smoke test，尚未与 U-Net 在相同条件下正式比较。
+
+### YOLO 检测流程：数据集构建阶段与推理后处理阶段
+
+**A. Detection Dataset 构建：** WeedMap semantic mask → target mask → connected components → component bbox → bbox statistics → visualization / statistical analysis → dataset bbox filtering rules → YOLO labels → Detection Dataset。
+
+WeedMap 原始标签是 semantic segmentation mask，不包含 instance identity。connected component 只能作为自动生成 bbox 的近似方法，不能默认一个 component 就是一株独立 weed 或 crop。稀疏场景的独立小型 component 更可能接近单株或单簇；密集或粘连区域的大面积 component 可能包含多个植株或片状杂草区域，不应轻易解释为单株。这里的 filtering 是**数据集构建阶段的 bbox 清洗**，目标是从 semantic mask 生成较合理的 YOLO 训练标签。最终确定小框过滤阈值前，应统计 bbox width、height、area、aspect ratio、bbox/image area ratio 分布并结合可视化检查；未经验证的固定像素阈值只是当前脚本 smoke test 默认值，不是最终规则，以免误删真实的小 weed。
+
+**B. YOLO 训练 / 推理：** Detection Dataset → YOLOv8n smoke test / training → network candidate predictions → confidence filtering → NMS → final bounding boxes。
+
+YOLO 网络输出候选框、类别和置信度。confidence filtering 去掉低置信度预测框，NMS 去掉高度重叠的重复预测框；两者是**模型推理阶段的预测框后处理**，不属于 backbone 或 U-Net / YOLO 特征提取网络，也不等同于 A 阶段的 bbox 清洗。当前 YOLOv8n 仅用于验证 mask → connected components → bbox → YOLO dataset → training/inference 全流程，不是论文 MobileNetV3-YOLOv3 复现。当前脚本以 crop + weed 两类做流程验证，最终检测任务是 weed-only 还是 crop + weed 仍待确认。common split 的 VCR 统计显示 dense 场景占多数，因此主线仍是 U-Net / MobileNetV2ShallowUNet 语义分割，YOLO 是稀疏场景候选路线和辅助探索路线；暂不扩展复杂 sparse/dense routing 算法。
 
 ## 阶段性结论
 

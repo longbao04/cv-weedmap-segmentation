@@ -46,7 +46,7 @@ WeedMap 的 sugar beet field（甜菜田）场景与导师提出的水稻/柑橘
 
 ### 6. MobileNetV2ShallowUNet + boundary weighted CE r5_w4
 
-设置：`model=mobilenetv2_shallow_unet`、`loss=boundary_weighted_ce`、`boundary_radius=5`、`boundary_weight=4.0`，类别权重 background 1.0、crop 4.0、weed 8.0。
+设置：WeedMap common split、multispectral 输入、`model=mobilenetv2_shallow_unet`（方案 A）、`loss=boundary_weighted_ce`、`boundary_radius=5`、`boundary_weight=4.0`，类别权重 background 1.0、crop 4.0、weed 8.0；训练 20 epochs、batch size 2、seeds 0/1/2，各 seed 按验证集 mean IoU 选择 best checkpoint。
 
 | Seed | Best epoch | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -58,21 +58,21 @@ WeedMap 的 sugar beet field（甜菜田）场景与导师提出的水稻/柑橘
 | --- | ---: | ---: | ---: | ---: | ---: |
 | SmallUNet / weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
 | SmallUNet / boundary weighted CE r5_w4 | 96.79% ± 0.16% | 75.17% ± 1.02% | 97.15% ± 0.11% | 70.07% ± 2.41% | 58.29% ± 0.92% |
-| 方案 A / weighted CE | 96.53% ± 0.47% | 75.86% ± 1.22% | 96.80% ± 0.44% | 71.74% ± 2.76% | 59.03% ± 1.74% |
-| 方案 A / boundary weighted CE r5_w4 | **96.98% ± 0.24%** | **76.71% ± 0.55%** | **97.26% ± 0.16%** | **73.04% ± 1.86%** | **59.82% ± 0.64%** |
+| MobileNetV2ShallowUNet 方案 A / weighted CE | 96.53% ± 0.47% | 75.86% ± 1.22% | 96.80% ± 0.44% | 71.74% ± 2.76% | 59.03% ± 1.74% |
+| MobileNetV2ShallowUNet 方案 A / boundary weighted CE r5_w4 | **96.98% ± 0.24%** | **76.71% ± 0.55%** | **97.26% ± 0.16%** | **73.04% ± 1.86%** | **59.82% ± 0.64%** |
 | 相对 SmallUNet / weighted CE 提升（百分点） | +0.60 | +1.93 | +0.56 | +2.28 | +2.93 |
 
 目前最强语义分割结果来自 MobileNetV2ShallowUNet + boundary weighted CE r5_w4，在三 seed 上达到 Mean IoU 76.71% ± 0.55%、Weed IoU 59.82% ± 0.64%。这说明浅层 MobileNetV2-style encoder 与 boundary-aware loss 可以叠加提升，尤其对 weed 类识别更有帮助。
 
 ### 7. VCR 植被覆盖率评判指标
 
-`VCR = vegetation pixels / valid pixels`，其中 vegetation pixels 满足 `NDVI > 0.2` 且 `label != 255`，valid pixels 满足 `label != 255`。
+`VCR = vegetation pixels / valid pixels`，其中 vegetation pixels 满足 `NDVI > 0.2` 且 `label != 255`，valid pixels 满足 `label != 255`。VCR 用于场景划分，不参与模型训练指标计算。
 
 | 场景 | 初始阈值 | 样本数 | 占 454 张比例 |
 | --- | --- | ---: | ---: |
-| sparse | VCR < 0.20 | 13 | 2.86% |
-| transition | 0.20 ≤ VCR ≤ 0.30 | 9 | 1.98% |
-| dense | VCR > 0.30 | 432 | 95.15% |
+| sparse | VCR < 0.20 | 13 | 13 / 454 ≈ 2.86% |
+| transition | 0.20 ≤ VCR ≤ 0.30 | 9 | 9 / 454 ≈ 1.98% |
+| dense | VCR > 0.30 | 432 | 432 / 454 ≈ 95.15% |
 
 common split 共 454 张，VCR 均值 0.7928、中位数 0.9116、最小值 0.0000、最大值 0.9999。阈值 0.20 / 0.30 是初始经验阈值，后续需结合人工样本检查和实际除草需求调整。
 
@@ -83,8 +83,8 @@ common split 共 454 张，VCR 均值 0.7928、中位数 0.9116、最小值 0.00
 | 场景 | 候选路线 | 用途 |
 | --- | --- | --- |
 | sparse | YOLO | 单株/单簇定位和点状精准除草 |
-| transition | 同时测试 YOLO 与 U-Net，或人工确认 | 根据目标形态选择 |
 | dense | U-Net / MobileNetV2ShallowUNet | 区域 mask 和区域除草 |
+| transition | 同时测试 YOLO 与 U-Net，或人工确认 | 根据目标形态选择 |
 
 VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 目前仅有 smoke test，尚无与语义分割模型的正式同条件对比。
 
@@ -198,13 +198,23 @@ python analyze_vegetation_coverage.py --ndvi-threshold 0.2
 
 ## YOLO detect baseline 数据准备
 
-本项目新增 YOLO detect baseline，用于稀疏 crop/weed 目标检测，与 U-Net 语义分割路线互补。运行以下命令生成或重新生成 YOLO bbox 数据集：
+YOLO 是稀疏场景的候选检测路线和辅助探索路线。当前数据集脚本使用 crop + weed 两类作流程验证；最终检测任务采用 weed-only 还是 crop + weed，仍待确认。运行以下命令生成或重新生成 YOLO bbox 数据集：
 
 ```bash
 python prepare_yolo_detection_dataset.py --overwrite
 ```
 
-脚本读取同一份共享样本列表，按 U-Net 的 seed=0 和 80/20 规则划分（当前为 train 363 张、val 91 张），直接复制原始 RGB 图到 `data/yolo_weedmap_detect/images/{train,val}`，并在 `labels/{train,val}` 写出对应标签和空目标图片的空 `.txt`。类别为 `0=crop`、`1=weed`，不输出 background；使用八连通区域生成 bbox。直接从 segmentation mask 转 YOLO bbox 可能产生碎框和过大片状框，因此默认跳过面积小于 20 像素、框宽或高小于 4 像素、框面积超过图像面积 25% 的区域；可通过 `--min-area`、`--min-box-width`、`--min-box-height`、`--max-box-area-ratio` 调整，并可用 `--skip-border-touching` 跳过接触图像边界的框。终端输出保留的 crop/weed 框数，以及 `skipped small boxes`、`skipped huge boxes`、`skipped border boxes` 数量。相接的植株可能合并为一个框，因此这些框表示连通区域，不保证对应单株。`data.yaml` 写在输出目录。还可用 `--data-root`、`--sample-list-csv`、`--output-dir`、`--seed` 调整；已有非空输出目录时需使用 `--overwrite`，否则请选择空目录。此步骤仅准备检测数据，不训练模型。
+脚本读取同一份共享样本列表，按 U-Net 的 seed=0 和 80/20 规则划分（当前为 train 363 张、val 91 张），直接复制原始 RGB 图到 `data/yolo_weedmap_detect/images/{train,val}`，并在 `labels/{train,val}` 写出对应标签和空目标图片的空 `.txt`。当前格式为 `0=crop`、`1=weed`，不输出 background；使用八连通区域生成 bbox。脚本现有默认值会跳过 component 面积小于 20 像素、框宽或高小于 4 像素、框面积超过图像面积 25% 的框；这些只是 smoke test 使用的默认值，尚未经 bbox 分布统计与可视化验证，不能当作最终过滤规则。可通过 `--min-area`、`--min-box-width`、`--min-box-height`、`--max-box-area-ratio` 调整，并可用 `--skip-border-touching` 跳过接触图像边界的框。终端输出保留的 crop/weed 框数，以及 `skipped small boxes`、`skipped huge boxes`、`skipped border boxes` 数量。`data.yaml` 写在输出目录。还可用 `--data-root`、`--sample-list-csv`、`--output-dir`、`--seed` 调整；已有非空输出目录时需使用 `--overwrite`，否则请选择空目录。此步骤仅准备检测数据，不训练模型。
+
+### YOLO 检测流程：数据集构建阶段与推理后处理阶段
+
+**A. Detection Dataset 构建：** WeedMap semantic mask → target mask → connected components → component bbox → bbox statistics → visualization / statistical analysis → dataset bbox filtering rules → YOLO labels → Detection Dataset。
+
+WeedMap 原始标签是 semantic segmentation mask，没有 instance identity。按目标类别生成 target mask 后，connected component 只能近似地自动生成 bbox，不能默认一个 component 对应一株独立 weed 或 crop。稀疏场景中，独立小型 component 更可能接近单株或单簇目标；密集或粘连区域的大面积 component 可能包含多株植株或片状杂草区域，不宜解释为单株。此阶段的 filtering 是**数据集构建阶段的 bbox 清洗**，目的是从 semantic mask 生成较合理的 YOLO 训练标签。确定小框过滤阈值前，应先统计 bbox width、height、area、aspect ratio、bbox/image area ratio 的分布，再结合框叠加可视化检查确定规则，避免误删真实的小 weed。当前脚本尚未完成这套阈值验证。
+
+**B. YOLO 训练 / 推理：** Detection Dataset → YOLOv8n smoke test / training → network candidate predictions → confidence filtering → NMS → final bounding boxes。
+
+YOLO 网络输出候选框、类别和置信度；confidence filtering 去掉低置信度预测框，NMS 去掉高度重叠的重复预测框。这两步是**模型推理阶段的预测框后处理**，不属于 backbone，也不属于 U-Net 或 YOLO 的特征提取网络；与 A 阶段的训练标签 bbox 清洗是两种不同操作。YOLOv8n 目前只用于验证 mask → connected components → bbox → YOLO dataset → training/inference 流程，不是论文 MobileNetV3-YOLOv3 的复现。common split 的 VCR 统计以 dense 场景为主，当前主线仍是 U-Net / MobileNetV2ShallowUNet 语义分割。
 
 训练 YOLO 前，先检查转换后的检测框：
 
@@ -275,7 +285,7 @@ python train_real_weedmap_unet.py --input-type multispectral --sample-list-csv s
 | 三 seed 统计 | Pixel accuracy | Mean IoU | Background IoU | Crop IoU | Weed IoU |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | SmallUNet weighted CE | 96.38% ± 0.36% | 74.78% ± 0.82% | 96.70% ± 0.43% | 70.76% ± 1.11% | 56.89% ± 2.06% |
-| 方案 A weighted CE | 约 96.53% ± 0.47% | 约 75.86% ± 1.22% | 约 96.80% ± 0.44% | 约 71.74% ± 2.76% | 约 59.03% ± 1.74% |
+| 方案 A weighted CE | 96.53% ± 0.47% | 75.86% ± 1.22% | 96.80% ± 0.44% | 71.74% ± 2.76% | 59.03% ± 1.74% |
 | 方案 A 相对提升（百分点） | +0.15 | +1.08 | +0.10 | +0.98 | +2.14 |
 
 seed2 best checkpoint 的 sample0 单张可视化结果：pixel accuracy 96.43%、background IoU 96.70%、crop IoU 68.74%、weed IoU 45.66%、mean IoU 70.36%。该单张结果与上表整体验证集结果的统计范围不同。
