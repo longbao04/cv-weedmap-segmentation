@@ -804,6 +804,12 @@ confidence threshold 从 0.25 提高到 0.40 后，低置信度预测框明显�
 
 confidence filtering 和 NMS 属于 YOLO inference post-processing，不属于 backbone，也不属于 dataset bbox filtering；它们与 semantic mask → connected components → bbox 过程中的数据集过滤不同。当前 YOLO baseline 暂时保留 crop+weed r010 作为主要检测设置，weed-only r010 作为对照实验记录。YOLO 仍定位为稀疏场景候选路线和 detection pipeline 探索；当前项目主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4 语义分割。上述框数量与观感仅是 sample index=0 的可视化观察，不能替代整个验证集指标；整体结论仍以 validation metrics 为主。
 
+### YOLO baseline summary for future MobileNetV3-YOLOv8n comparison
+
+`summarize_yolo_baselines.py` 将 crop+weed r020、crop+weed r010、weed-only r010 的 5 epochs run 汇总到 `outputs/yolo_baseline_summary.csv`。检测指标取 `results.csv` 最后一轮 all-class 值，Params、GFLOPs（imgsz=480）和 model size 取 `best.pt`；跨两类与单类数据集比较时需注意指标口径。
+
+这些记录是计划中的 MobileNetV3-YOLOv8n 轻量化改造 baseline，该模型尚未实现。未来更换 YOLO backbone 时，需同时比较 precision、recall、mAP50、mAP50-95 与 Params、FLOPs、model size、inference speed，并保持测速条件一致。
+
 ## 28. 真实预测可视化与误差分析
 
 ### 3 epochs

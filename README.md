@@ -295,6 +295,12 @@ yolo detect train \
 
 confidence filtering 和 NMS 属于 YOLO inference post-processing，不属于 backbone，也不属于 dataset bbox filtering；它们与前述 semantic mask → connected components → bbox 过程中的数据集过滤不同。当前 YOLO baseline 暂时保留 crop+weed r010 为主要检测设置，weed-only r010 作为对照实验记录。YOLO 仍定位为稀疏场景候选路线和 detection pipeline 探索；项目主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4 语义分割。这些框数量与观感仅是 sample index=0 的可视化观察，不能替代整个验证集指标；整体结论仍以 validation metrics 为主。
 
+### YOLO baseline summary for future MobileNetV3-YOLOv8n comparison
+
+运行 `python summarize_yolo_baselines.py` 汇总 crop+weed r020、crop+weed r010、weed-only r010 三个 5 epochs 实验，结果保存到 `outputs/yolo_baseline_summary.csv`。检测指标取各 run 的 `results.csv` 最后一轮 all-class 值；Params、GFLOPs（imgsz=480）和模型大小取各自的 `weights/best.pt`。两类检测的 all-class 指标与 weed-only 指标口径不同，跨设置比较 weed 表现时应参考上文的 weed class 结果。
+
+这些结果是计划中的 MobileNetV3-YOLOv8n 轻量化改造的 baseline；该改造尚未实现。未来如调整 YOLO backbone，需同时比较 detection metrics（precision、recall、mAP50、mAP50-95）和 lightweight metrics（Params、FLOPs、model size、inference speed），并统一输入尺寸、设备和测速条件。
+
 ## 训练真实 WeedMap U-Net
 
 使用本地真实 WeedMap 数据、现有 `WeedMapDataset` 和 `SmallUNet` 训练三分类模型：

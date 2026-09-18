@@ -635,3 +635,9 @@ VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此
 confidence threshold 从 0.25 提高到 0.40 后，低置信度预测框明显减少，可视化结果更干净。这表明 confidence threshold 是 YOLO 推理阶段控制最终输出框数量的重要后处理参数。提高阈值可能减少误检和重复框，也可能增加漏检；因此目前不能简单认为 `conf=0.40` 是最优阈值，只能将其作为可视化观察和后续推理后处理调参的候选设置。可运行 `python visualize_yolo_predictions.py --sample-index 0 --conf 0.40 --iou 0.7` 对照；两次运行写入同一输出路径，需提前保留旧图才能并排查看。
 
 confidence filtering 和 NMS 属于 YOLO inference post-processing，不属于 backbone，也不属于 dataset bbox filtering；它们与 semantic mask → connected components → bbox 过程中的数据集过滤不同。当前 YOLO baseline 暂时保留 crop+weed r010 作为主要检测设置，weed-only r010 作为对照实验记录。YOLO 仍定位为稀疏场景候选路线和 detection pipeline 探索；当前项目主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4 语义分割。以上仅是 sample index=0 的可视化观察，不能替代整个验证集指标；整体结论仍以 validation metrics 为主。
+
+### YOLO baseline summary for future MobileNetV3-YOLOv8n comparison
+
+`python summarize_yolo_baselines.py` 从三个 5 epochs run 的 `results.csv` 最后一轮提取 all-class precision、recall、mAP50、mAP50-95，并从各自 `weights/best.pt` 统计 Params、GFLOPs（imgsz=480）和 model size；汇总文件为 `outputs/yolo_baseline_summary.csv`。crop+weed 的 all-class 指标与 weed-only 指标不能直接当作相同类别口径的对照，weed class 对照见上文。
+
+上述结果用于计划中的 MobileNetV3-YOLOv8n 轻量化改造 baseline，目前尚未实现该模型。未来修改 YOLO backbone 时，需在一致条件下同时比较 detection metrics 与 lightweight metrics：Params、FLOPs、model size、inference speed。
