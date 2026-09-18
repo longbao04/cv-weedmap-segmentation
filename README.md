@@ -339,6 +339,10 @@ yolo detect train \
 
 confidence filtering 和 NMS 属于 YOLO inference post-processing，不属于 backbone，也不属于 dataset bbox filtering；它们与前述 semantic mask → connected components → bbox 过程中的数据集过滤不同。当前 YOLO baseline 暂时保留 crop+weed r010 为主要检测设置，weed-only r010 作为对照实验记录。YOLO 仍定位为稀疏场景候选路线和 detection pipeline 探索；项目主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4 语义分割。这些框数量与观感仅是 sample index=0 的可视化观察，不能替代整个验证集指标；整体结论仍以 validation metrics 为主。
 
+### YOLO post-processing threshold analysis plan
+
+运行 `python analyze_yolo_postprocessing_thresholds.py --sample-limit 20`，对当前 crop+weed r010 最佳 YOLO baseline 在排序后的前 20 张 validation images 上比较候选 `conf=0.25/0.30/0.40/0.50` 与 NMS `iou=0.50/0.60/0.70`；逐组合统计预测框总数、crop/weed 框数和平均置信度，保存到 `outputs/yolo_postprocessing_threshold_summary.csv`。confidence filtering 和 NMS IoU threshold 是 YOLO 推理阶段后处理参数，不属于 backbone，也不同于 dataset bbox filtering。该分析用于观察不同设置对预测框数量、weed 框数量和潜在重复预测的影响；框数变化本身不能证明重复框或误检减少，后续仍需结合可视化和验证指标。当前仅作为推理阶段分析与候选设置，不改变训练结果，也不指定最终最优阈值。
+
 ### YOLO baseline summary for future MobileNetV3-YOLOv8n comparison
 
 运行 `python summarize_yolo_baselines.py` 汇总 crop+weed r020、crop+weed r010、weed-only r010 三个 5 epochs 实验，结果保存到 `outputs/yolo_baseline_summary.csv`。检测指标取各 run 的 `results.csv` 最后一轮 all-class 值；Params、GFLOPs（imgsz=480）和模型大小取各自的 `weights/best.pt`。两类检测的 all-class 指标与 weed-only 指标口径不同，跨设置比较 weed 表现时应参考上文的 weed class 结果。
