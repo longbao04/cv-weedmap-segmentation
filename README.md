@@ -88,6 +88,20 @@ common split 共 454 张，VCR 均值 0.7928、中位数 0.9116、最小值 0.00
 
 VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 已完成 smoke test、5 epochs bbox 过滤对比和 weed-only vs crop+weed 对照，尚无与语义分割模型的正式同条件对比。
 
+### YOLO baseline lightweight metrics
+
+以下数值来自 `outputs/yolo_baseline_summary.csv`：检测指标取 5 epochs 训练结果最后一轮的 all-class 值，Params、GFLOPs（imgsz=480）和 Model Size 取各 run 的 `best.pt`。crop+weed 与 weed-only 的类别口径不同，不宜直接据此比较检测效果。
+
+| Run | 检测类别 | Precision | Recall | mAP50 | mAP50-95 | Params | GFLOPs | Model Size (MB) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `r020_5epochs` | crop+weed | 0.49736 | 0.59299 | 0.52611 | 0.29074 | 3,011,238 | 4.608432 | 6.21425 |
+| `r010_5epochs` | crop+weed | 0.50539 | 0.58950 | 0.53062 | 0.29557 | 3,011,238 | 4.608432 | 6.21425 |
+| `weed_only_r010_5epochs` | weed-only | 0.43149 | 0.48721 | 0.42087 | 0.18213 | 3,011,043 | 4.6078272 | 6.213866 |
+
+当前最佳 YOLO baseline 是 crop+weed `r010_5epochs`：mAP50 为 0.53062，mAP50-95 为 0.29557，模型参数量约 3.01M、GFLOPs 约 4.61、模型大小约 6.21 MB。
+
+这些数值将作为后续 MobileNetV3-YOLOv8n 轻量化改造的对照基线。该改造目前只是计划，尚未实现；后续若改造 YOLOv8n backbone，需要在一致条件下同时比较 detection metrics（Precision、Recall、mAP50、mAP50-95）和 lightweight metrics（Params、GFLOPs、Model Size、inference speed）。当前项目主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4 语义分割。
+
 ## 实验报告
 
 [`synthetic_segmentation_report.md`](synthetic_segmentation_report.md) 是 synthetic U-Net 分割实验总结报告，汇总了 baseline、class weights、训练稳定性、loss function 对比，以及 RGB 与 multispectral 输入对比结果。
