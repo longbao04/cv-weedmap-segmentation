@@ -519,7 +519,7 @@ WeedMap common split 共 454 张；VCR 均值 0.7928、中位数 0.9116、最小
 | dense | U-Net / MobileNetV2ShallowUNet | 区域 mask 和区域除草 |
 | transition | 同时测试 YOLO 与 U-Net，或人工确认 | 根据目标形态选择 |
 
-VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 已完成 smoke test 和 5 epochs bbox 过滤对比，尚未与 U-Net 在相同条件下正式比较。
+VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 已完成 smoke test、5 epochs bbox 过滤对比和 weed-only vs crop+weed 对照，尚未与 U-Net 在相同条件下正式比较。
 
 ### YOLO 检测流程：数据集构建阶段与推理后处理阶段
 
@@ -529,7 +529,7 @@ WeedMap 原始标签是 semantic segmentation mask，不包含 instance identity
 
 **B. YOLO 训练 / 推理：** Detection Dataset → YOLOv8n smoke test / training → network candidate predictions → confidence filtering → NMS → final bounding boxes。
 
-YOLO 网络输出候选框、类别和置信度。confidence filtering 去掉低置信度预测框，NMS 去掉高度重叠的重复预测框；两者是**模型推理阶段的预测框后处理**，不属于 backbone 或 U-Net / YOLO 特征提取网络，也不等同于 A 阶段的 bbox 清洗。当前 YOLOv8n 仅用于验证 mask → connected components → bbox → YOLO dataset → training/inference 全流程，不是论文 MobileNetV3-YOLOv3 复现。当前脚本以 crop + weed 两类做流程验证，最终检测任务是 weed-only 还是 crop + weed 仍待确认。common split 的 VCR 统计显示 dense 场景占多数，因此主线仍是 U-Net / MobileNetV2ShallowUNet 语义分割，YOLO 是稀疏场景候选路线和辅助探索路线；暂不扩展复杂 sparse/dense routing 算法。
+YOLO 网络输出候选框、类别和置信度。confidence filtering 去掉低置信度预测框，NMS 去掉高度重叠的重复预测框；两者是**模型推理阶段的预测框后处理**，不属于 backbone 或 U-Net / YOLO 特征提取网络，也不等同于 A 阶段的 bbox 清洗。当前 YOLOv8n 用于验证 mask → connected components → bbox → YOLO dataset → training/inference 全流程及初步检测对照，不是论文 MobileNetV3-YOLOv3 复现。当前 YOLO baseline 暂时采用 crop+weed detection，weed-only 作为对照实验。common split 的 VCR 统计显示 dense 场景占多数，因此主线仍是 U-Net / MobileNetV2ShallowUNet 语义分割，YOLO 是稀疏场景候选路线和辅助探索路线；暂不扩展复杂 sparse/dense routing 算法。
 
 ## 阶段性结论
 
@@ -606,6 +606,17 @@ VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此
 | r010 | crop | 0.527 | 0.652 | 0.601 | 0.376 |
 | r010 | weed | 0.482 | 0.530 | 0.460 | 0.215 |
 
-将 `max-box-area-ratio` 从 0.20 降至 0.10 后，all mAP50 从 0.526 小幅升至 0.531，weed mAP50 从 0.457 小幅升至 0.460，但 weed recall 从 0.538 小幅降至 0.530。更严格的大粘连框过滤没有破坏 YOLO 训练流程，并带来非常小的精度提升；提升幅度有限，不能认为 r010 已显著优于 baseline。后续可继续测试 r015 或 weed-only detection。YOLO 当前仍是 detection pipeline 和稀疏场景候选路线；WeedMap common split 仍以 dense 场景为主，语义分割主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4。
+将 `max-box-area-ratio` 从 0.20 降至 0.10 后，all mAP50 从 0.526 小幅升至 0.531，weed mAP50 从 0.457 小幅升至 0.460，但 weed recall 从 0.538 小幅降至 0.530。更严格的大粘连框过滤没有破坏 YOLO 训练流程，并带来非常小的精度提升；提升幅度有限，不能认为 r010 已显著优于 baseline。后续可继续测试 r015；weed-only detection 对照见下节。YOLO 当前仍是 detection pipeline 和稀疏场景候选路线；WeedMap common split 仍以 dense 场景为主，语义分割主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4。
 
-新增 `data/yolo_weedmap_detect_weed_only_r010` 数据集版本（`--target-classes weed_only`），仅保留 weed 框并映射为 class 0，用于测试只检测 weed 是否比 crop+weed detection 更适合精准除草。标签仍由 semantic mask connected components 生成，不是人工 instance bbox；目前未进行该版本的模型训练或效果比较。
+新增 `data/yolo_weedmap_detect_weed_only_r010` 数据集版本（`--target-classes weed_only`），仅保留 weed 框并映射为 class 0，用于测试只检测 weed 是否比 crop+weed detection 更适合精准除草。标签仍由 semantic mask connected components 生成，不是人工 instance bbox；5 epochs 对照结果如下。
+
+### YOLO weed-only vs crop+weed comparison
+
+对比 dataset A（crop+weed r010）与 dataset B（weed-only r010）的 weed class 检测结果。两组均使用 YOLOv8n，epochs=5、imgsz=480、batch=4、device=mps、seed=0；bbox 标签均由 WeedMap semantic mask 自动生成。
+
+| 数据集 / 检测设置 | Weed P | Weed R | Weed mAP50 | Weed mAP50-95 |
+| --- | ---: | ---: | ---: | ---: |
+| A：crop+weed r010 | 0.482 | 0.530 | 0.460 | 0.215 |
+| B：weed-only r010 | 0.431 | 0.488 | 0.421 | 0.182 |
+
+在当前数据构建方式、YOLOv8n、5 epochs 和 seed=0 的设置下，weed-only detection 没有超过 crop+weed detection：后者在 weed precision、recall、mAP50 和 mAP50-95 上均更高。这不构成对 weed-only 路线的最终否定。当前 YOLO baseline 暂时保留 crop+weed detection 为主要检测设置，weed-only 作为对照实验记录；YOLO 仍是稀疏场景候选路线，当前主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4。
