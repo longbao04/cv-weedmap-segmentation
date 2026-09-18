@@ -519,7 +519,7 @@ WeedMap common split 共 454 张；VCR 均值 0.7928、中位数 0.9116、最小
 | dense | U-Net / MobileNetV2ShallowUNet | 区域 mask 和区域除草 |
 | transition | 同时测试 YOLO 与 U-Net，或人工确认 | 根据目标形态选择 |
 
-VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 目前只有 smoke test，尚未与 U-Net 在相同条件下正式比较。
+VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 已完成 smoke test 和 5 epochs bbox 过滤对比，尚未与 U-Net 在相同条件下正式比较。
 
 ### YOLO 检测流程：数据集构建阶段与推理后处理阶段
 
@@ -587,3 +587,23 @@ VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此
 ### YOLO bbox statistics before optimization
 
 运行 `python analyze_yolo_bbox_statistics.py` 对当前 YOLO detection dataset 做优化前的标签质量分析，输出逐框 CSV `outputs/yolo_bbox_statistics.csv` 和 `reports/assets/` 下的四张分布图。标签来自 semantic mask 的 connected components，不是人工 instance bbox。bbox 尺寸与面积比例统计用于后续决定 min-area、max-area-ratio、min-width、min-height 等过滤规则；暂不根据结果自动修改规则。
+
+### YOLO bbox filtering comparison: r020 vs r010
+
+两组均使用 YOLOv8n，epochs=5、imgsz=480、batch=4、device=mps、seed=0；train images=363、val images=91。仅调整数据集构建阶段的 `max-box-area-ratio`，其余 bbox 过滤参数相同：
+
+| 设置 | max-box-area-ratio | min-area | min-box-width | min-box-height |
+| --- | ---: | ---: | ---: | ---: |
+| r020 baseline | 0.20 | 80 | 6 | 6 |
+| r010 | 0.10 | 80 | 6 | 6 |
+
+| 设置 | 类别 | P | R | mAP50 | mAP50-95 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| r020 baseline | all | 0.498 | 0.594 | 0.526 | 0.291 |
+| r020 baseline | crop | 0.525 | 0.650 | 0.595 | 0.370 |
+| r020 baseline | weed | 0.470 | 0.538 | 0.457 | 0.212 |
+| r010 | all | 0.505 | 0.591 | 0.531 | 0.296 |
+| r010 | crop | 0.527 | 0.652 | 0.601 | 0.376 |
+| r010 | weed | 0.482 | 0.530 | 0.460 | 0.215 |
+
+将 `max-box-area-ratio` 从 0.20 降至 0.10 后，all mAP50 从 0.526 小幅升至 0.531，weed mAP50 从 0.457 小幅升至 0.460，但 weed recall 从 0.538 小幅降至 0.530。更严格的大粘连框过滤没有破坏 YOLO 训练流程，并带来非常小的精度提升；提升幅度有限，不能认为 r010 已显著优于 baseline。后续可继续测试 r015 或 weed-only detection。YOLO 当前仍是 detection pipeline 和稀疏场景候选路线；WeedMap common split 仍以 dense 场景为主，语义分割主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4。

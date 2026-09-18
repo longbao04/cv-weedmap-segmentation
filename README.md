@@ -86,7 +86,7 @@ common split 共 454 张，VCR 均值 0.7928、中位数 0.9116、最小值 0.00
 | dense | U-Net / MobileNetV2ShallowUNet | 区域 mask 和区域除草 |
 | transition | 同时测试 YOLO 与 U-Net，或人工确认 | 根据目标形态选择 |
 
-VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 目前仅有 smoke test，尚无与语义分割模型的正式同条件对比。
+VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此当前阶段继续优化语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充模型路线。YOLO 已完成 smoke test 和 5 epochs bbox 过滤对比，尚无与语义分割模型的正式同条件对比。
 
 ## 实验报告
 
@@ -245,6 +245,26 @@ yolo detect train \
 ```
 
 本次 smoke test 只验证 YOLO 数据格式和训练流程可用，不用于与 U-Net 正式比较。YOLO 标签由 segmentation mask 自动转换，并非人工 bbox 标注，后续检测结果需要谨慎解释。结果记录见 [`real_experiment_notes.md`](real_experiment_notes.md)。
+
+### YOLO bbox filtering comparison: r020 vs r010
+
+两组均使用 YOLOv8n，epochs=5、imgsz=480、batch=4、device=mps、seed=0；train images=363、val images=91。仅调整数据集构建阶段的 `max-box-area-ratio`，其余 bbox 过滤参数相同：
+
+| 设置 | max-box-area-ratio | min-area | min-box-width | min-box-height |
+| --- | ---: | ---: | ---: | ---: |
+| r020 baseline | 0.20 | 80 | 6 | 6 |
+| r010 | 0.10 | 80 | 6 | 6 |
+
+| 设置 | 类别 | P | R | mAP50 | mAP50-95 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| r020 baseline | all | 0.498 | 0.594 | 0.526 | 0.291 |
+| r020 baseline | crop | 0.525 | 0.650 | 0.595 | 0.370 |
+| r020 baseline | weed | 0.470 | 0.538 | 0.457 | 0.212 |
+| r010 | all | 0.505 | 0.591 | 0.531 | 0.296 |
+| r010 | crop | 0.527 | 0.652 | 0.601 | 0.376 |
+| r010 | weed | 0.482 | 0.530 | 0.460 | 0.215 |
+
+将 `max-box-area-ratio` 从 0.20 降至 0.10 后，all mAP50 从 0.526 小幅升至 0.531，weed mAP50 从 0.457 小幅升至 0.460，但 weed recall 从 0.538 小幅降至 0.530。更严格的大粘连框过滤没有破坏 YOLO 训练流程，并带来非常小的精度提升；提升幅度有限，不能认为 r010 已显著优于 baseline。后续可继续测试 r015 或 weed-only detection。YOLO 当前仍是 detection pipeline 和稀疏场景候选路线；WeedMap common split 仍以 dense 场景为主，语义分割主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4。
 
 ## 训练真实 WeedMap U-Net
 
