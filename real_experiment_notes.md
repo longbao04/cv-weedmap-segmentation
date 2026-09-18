@@ -679,3 +679,18 @@ confidence filtering 和 NMS 属于 YOLO inference post-processing，不属于 b
 ### 4. Overall conclusion
 
 当前项目主线仍是语义分割，因为 WeedMap common split 中 dense vegetation samples 占多数。YOLO 检测支线主要作为 sparse vegetation scenarios 的候选路线，以及后续 MobileNetV3-YOLOv8n 轻量化检测研究的基础。
+
+## Activation function ablation plan
+
+当前模型默认使用 ReLU；为保持已有结果可复现，MobileNetV2 inverted residual block 中的默认激活保留原有 ReLU6。后续将比较 ReLU、LeakyReLU 和 GELU 在 MobileNetV2ShallowUNet + boundary weighted CE r5_w4 上的影响。该实验只替换 encoder/decoder 和 inverted residual block 中间层激活函数，不改变最后 segmentation head，因为 CrossEntropyLoss 需要 raw logits。
+
+- Model: MobileNetV2ShallowUNet
+- Input: multispectral
+- Loss: boundary_weighted_ce
+- radius = 5
+- boundary weight = 4
+- Epochs = 20
+- First test seed = 0
+- Activations: relu, leaky_relu, gelu
+
+后续可视化应优先选择 dense vegetation validation samples，例如 VCR > 0.8 或 validation split 中 VCR 最高的样本，以更符合 WeedMap common split 的主体分布，而不再只看零散样本。当前仅准备代码和计划，尚未运行激活函数消融训练。

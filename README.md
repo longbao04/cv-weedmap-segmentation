@@ -575,3 +575,18 @@ python plot_synthetic_history.py --loss weighted_ce --input-type multispectral
 所有实验按 `synthetic_unet_<input_type>_<loss>.pth` 和 `synthetic_history_<input_type>_<loss>.csv` 保存。预测图为 `outputs/synthetic_prediction_<input_type>_<loss>.png`，曲线图为 `outputs/synthetic_history_<input_type>_<loss>.png`。同一组合重新训练会覆盖其模型和 CSV。此前仅包含 loss 的旧文件不会自动迁移或加载；缺少对应模型或 CSV 时，脚本会提示包含输入类型的训练命令。
 
 多光谱预测可视化将 Red/Green/NIR 映射到显示用的 R/G/B，形成近似 RGB 合成图；由于 NIR 替代蓝光，它不是真彩色照片。仍显示 true mask、predicted mask 和 error map。模拟反射率不是实测光谱，实验结果只能用于比较当前模拟条件，不能证明真实田间的多光谱优势。上述 synthetic 实验不联网、不下载或训练真实 WeedMap 数据，结果记录在 `synthetic_experiment_notes.md`。
+
+## Activation function ablation plan
+
+当前模型默认使用 ReLU；为保持已有结果可复现，MobileNetV2 inverted residual block 中的默认激活保留原有 ReLU6。后续将比较 ReLU、LeakyReLU 和 GELU 在 MobileNetV2ShallowUNet + boundary weighted CE r5_w4 上的影响。该实验只替换 encoder/decoder 和 inverted residual block 中间层激活函数，不改变最后 segmentation head，因为 CrossEntropyLoss 需要 raw logits。
+
+- Model: MobileNetV2ShallowUNet
+- Input: multispectral
+- Loss: boundary_weighted_ce
+- radius = 5
+- boundary weight = 4
+- Epochs = 20
+- First test seed = 0
+- Activations: relu, leaky_relu, gelu
+
+后续可视化应优先选择 dense vegetation validation samples，例如 VCR > 0.8 或 validation split 中 VCR 最高的样本，以更符合 WeedMap common split 的主体分布，而不再只看零散样本。当前仅准备代码和计划，尚未运行激活函数消融训练。

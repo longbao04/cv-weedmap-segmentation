@@ -23,6 +23,7 @@ CLASS_NAMES = ("background", "crop", "weed")
 LOSS_CHOICES = ("ce", "weighted_ce", "focal", "dice_ce", "boundary_weighted_ce")
 INPUT_CHOICES = ("rgb", "multispectral")
 MODEL_CHOICES = ("small_unet", "mobilenetv2_shallow_unet")
+ACTIVATION_CHOICES = ("relu", "leaky_relu", "gelu")
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
@@ -91,6 +92,7 @@ def parse_args():
         "--input-type", choices=INPUT_CHOICES, default="multispectral"
     )
     parser.add_argument("--model", choices=MODEL_CHOICES, default="small_unet")
+    parser.add_argument("--activation", choices=ACTIVATION_CHOICES, default="relu")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--lr", type=float, default=0.001)
@@ -253,7 +255,9 @@ def main():
     model_class = (
         SmallUNet if args.model == "small_unet" else MobileNetV2ShallowUNet
     )
-    model = model_class(in_channels=in_channels, num_classes=NUM_CLASSES).to(device)
+    model = model_class(
+        in_channels=in_channels, num_classes=NUM_CLASSES, activation=args.activation
+    ).to(device)
     if args.loss == "weighted_ce":
         class_weights = torch.tensor(
             [args.background_weight, args.crop_weight, args.weed_weight],
@@ -293,8 +297,10 @@ def main():
     model_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     model_prefix = "" if args.model == "small_unet" else f"{args.model}_"
+    activation_suffix = "" if args.activation == "relu" else f"_{args.activation}"
     model_path = args.save_path or (
-        model_dir / f"real_weedmap_{model_prefix}{args.input_type}_{args.loss}.pth"
+        model_dir
+        / f"real_weedmap_{model_prefix}{args.input_type}_{args.loss}{activation_suffix}.pth"
     )
     model_path.parent.mkdir(parents=True, exist_ok=True)
     best_model_path = model_path.with_name(
@@ -302,7 +308,7 @@ def main():
     )
     history_path = args.history_path or (
         output_dir
-        / f"real_weedmap_history_{model_prefix}{args.input_type}_{args.loss}.csv"
+        / f"real_weedmap_history_{model_prefix}{args.input_type}_{args.loss}{activation_suffix}.csv"
     )
     history_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = (
@@ -320,6 +326,7 @@ def main():
 
     print(f"device: {device}")
     print(f"model: {args.model}")
+    print(f"activation: {args.activation}")
     print(f"input_type: {args.input_type}")
     print(f"train samples: {train_size}")
     print(f"val samples: {val_size}")

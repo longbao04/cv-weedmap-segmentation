@@ -1,5 +1,7 @@
 """Check the shallow MobileNetV2-style U-Net tensor shapes without training."""
 
+import argparse
+
 import torch
 
 from unet import MobileNetV2ShallowUNet
@@ -31,7 +33,15 @@ EXPECTED_RESIDUALS = {
 
 
 def main():
-    model = MobileNetV2ShallowUNet(in_channels=5, num_classes=3).eval()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--activation", choices=("relu", "leaky_relu", "gelu"), default="relu"
+    )
+    args = parser.parse_args()
+    model = MobileNetV2ShallowUNet(
+        in_channels=5, num_classes=3, activation=args.activation
+    ).eval()
+    print(f"activation: {args.activation}")
     for name, expected in EXPECTED_RESIDUALS.items():
         actual = getattr(model, name.lower()).use_residual
         print(f"{name} residual add: {actual}")
