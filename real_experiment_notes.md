@@ -640,6 +640,31 @@ confidence filtering 和 NMS 属于 YOLO inference post-processing，不属于 b
 
 运行 `python analyze_yolo_postprocessing_thresholds.py --sample-limit 20`，对当前 crop+weed r010 最佳 YOLO baseline 在排序后的前 20 张 validation images 上比较候选 `conf=0.25/0.30/0.40/0.50` 与 NMS `iou=0.50/0.60/0.70`；逐组合统计预测框总数、crop/weed 框数和平均置信度，保存到 `outputs/yolo_postprocessing_threshold_summary.csv`。confidence filtering 和 NMS IoU threshold 是 YOLO 推理阶段后处理参数，不属于 backbone，也不同于 dataset bbox filtering。该分析用于观察不同设置对预测框数量、weed 框数量和潜在重复预测的影响；框数变化本身不能证明重复框或误检减少，后续仍需结合可视化和验证指标。当前仅作为推理阶段分析与候选设置，不改变训练结果，也不指定最终最优阈值。
 
+### YOLO post-processing threshold analysis results
+
+基于当前最佳 YOLO baseline `YOLOv8n crop+weed r010`，使用前 20 张 validation images 统计不同 confidence threshold 与 NMS IoU threshold 组合的推理结果；完整数据见 `outputs/yolo_postprocessing_threshold_summary.csv`。下表固定 NMS `iou=0.50`：
+
+| Confidence threshold | Mean boxes/image | Crop boxes | Weed boxes | Mean confidence |
+| ---: | ---: | ---: | ---: | ---: |
+| 0.25 | 34.25 | 263 | 422 | 0.4140 |
+| 0.30 | 25.15 | 179 | 324 | 0.4644 |
+| 0.40 | 14.40 | 95 | 193 | 0.5539 |
+| 0.50 | 8.60 | 55 | 117 | 0.6243 |
+
+confidence threshold 是当前比较中影响预测框数量的主要因素：从 `conf=0.25` 提高到 `conf=0.40`，每张图平均预测框数从 34.25 降到 14.40，weed 预测框数从 422 降到 193；可视化结果明显更干净。
+
+固定 `conf=0.40` 时，NMS IoU threshold 的影响较小：
+
+| NMS IoU threshold | Mean boxes/image | Weed boxes |
+| ---: | ---: | ---: |
+| 0.50 | 14.40 | 193 |
+| 0.60 | 14.55 | 195 |
+| 0.70 | 14.65 | 196 |
+
+在这 20 张 validation images 上，调整 NMS IoU threshold 对预测框数量的影响较小，confidence threshold 更关键。`conf=0.40, iou=0.50` 可作为当前 YOLO prediction visualization 的候选设置：它比 `conf=0.25` 更干净，同时不像 `conf=0.50` 那样大幅减少预测框。
+
+**限制：**本分析只统计预测框数量和平均置信度，没有直接计算 TP、FP、FN，因此不能说明 `conf=0.40` 是最终最优阈值。最终阈值仍需结合人工可视化、PR/F1 曲线或验证集 detection metrics 判断。
+
 ### YOLO baseline lightweight metrics
 
 `python summarize_yolo_baselines.py` 从三个 5 epochs run 的 `results.csv` 最后一轮提取 all-class precision、recall、mAP50、mAP50-95，并从各自 `weights/best.pt` 统计 Params、GFLOPs（imgsz=480）和 model size；汇总文件为 `outputs/yolo_baseline_summary.csv`。crop+weed 的 all-class 指标与 weed-only 指标不能直接当作相同类别口径的对照，weed class 对照见上文。
@@ -660,13 +685,13 @@ confidence filtering 和 NMS 属于 YOLO inference post-processing，不属于 b
 
 **A. Semantic segmentation main line.** 当前最强设置是 `MobileNetV2ShallowUNet + boundary weighted CE r5_w4`：Mean IoU = 76.71% ± 0.55%，Weed IoU = 59.82% ± 0.64%，Pixel accuracy = 96.98% ± 0.24%。这是目前 WeedMap common split 上最强的语义分割设置；相比 `SmallUNet + weighted CE`，Mean IoU 和 Weed IoU 均有提升。
 
-**B. YOLO detection auxiliary line.** 当前最佳 YOLO baseline 是 `YOLOv8n crop+weed r010`：Precision = 0.50539，Recall = 0.58950，mAP50 = 0.53062，mAP50-95 = 0.29557，Params ≈ 3.01M，GFLOPs ≈ 4.61，Model size ≈ 6.21 MB。检测支线已完成 bbox statistics、r020/r010 对比、weed-only 对照实验、prediction visualization 和 lightweight baseline summary。
+**B. YOLO detection auxiliary line.** 当前最佳 YOLO baseline 是 `YOLOv8n crop+weed r010`：Precision = 0.50539，Recall = 0.58950，mAP50 = 0.53062，mAP50-95 = 0.29557，Params ≈ 3.01M，GFLOPs ≈ 4.61，Model size ≈ 6.21 MB。检测支线已完成 bbox statistics、r020/r010 对比、weed-only 对照实验、prediction visualization、post-processing threshold 框数统计和 lightweight baseline summary。
 
 ### 2. Short-term next experiments
 
 **A. Segmentation robustness check.** 后续增加 random seeds，检查更多 validation samples 的预测图，分析错误是否仍主要集中在 crop/weed 边界区域，并统计最强分割模型的参数量、模型大小和推理速度。这些是后续验证计划，当前不启动训练。
 
-**B. YOLO post-processing analysis.** 后续分析 `YOLOv8n crop+weed r010` 的 confidence threshold 对预测框数量、误检和漏检的影响，NMS IoU threshold 对重复框的影响，并检查 PR curve、F1 curve、confusion matrix 和 inference speed。confidence filtering 与 NMS 属于 inference post-processing，不属于 backbone，也不是 dataset bbox filtering。
+**B. YOLO post-processing analysis.** 已统计 `YOLOv8n crop+weed r010` 在前 20 张 validation images 上不同 confidence threshold 与 NMS IoU threshold 下的预测框数量和平均置信度。后续需结合人工可视化、PR/F1 曲线及验证集 detection metrics 判断误检、漏检和最终阈值，并检查 confusion matrix 和 inference speed。confidence filtering 与 NMS 属于 inference post-processing，不属于 backbone，也不是 dataset bbox filtering。
 
 **C. MobileNetV3-YOLOv8n design.** 在 YOLOv8n baseline 稳定后，可尝试用 MobileNetV3-style lightweight backbone 替换或改造 YOLOv8n backbone，保留 YOLOv8 的 Neck、Detect Head 和 anchor-free detection framework；在相同评估条件下比较 Precision、Recall、mAP50、mAP50-95、Params、GFLOPs、Model size 和 Inference speed。MobileNetV3-YOLOv8n 目前仅是 future work / planned experiment，尚未实现。
 
