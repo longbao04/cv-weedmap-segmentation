@@ -752,6 +752,10 @@ WeedMap 原始标签是 semantic segmentation mask，不包含 instance identity
 
 YOLO 网络输出候选框、类别和置信度。confidence filtering 去掉低置信度预测框，NMS 去掉高度重叠的重复预测框。两者是**模型推理阶段的预测框后处理**，不属于 backbone 或 U-Net / YOLO 特征提取网络，与 A 阶段的 bbox 清洗不同。当前 YOLOv8n 只验证 mask → connected components → bbox → YOLO dataset → training/inference 流程，不是论文 MobileNetV3-YOLOv3 复现。当前脚本以 crop + weed 两类做流程验证，最终检测任务是 weed-only 还是 crop + weed 仍待确认。common split 中 dense 占多数，当前主线仍是 U-Net / MobileNetV2ShallowUNet 语义分割；YOLO 是稀疏场景候选和辅助探索路线，暂不扩展复杂 sparse/dense routing 算法。
 
+### YOLO bbox statistics before optimization
+
+`python analyze_yolo_bbox_statistics.py` 对当前 YOLO 检测数据集进行优化前的标签质量分析，输出 `outputs/yolo_bbox_statistics.csv` 及 `reports/assets/` 下的 bbox 分布图。当前标签由 semantic mask 的 connected components 自动生成，并非人工 instance bbox。统计用于后续评估 min-area、max-area-ratio、min-width、min-height 等过滤规则；暂不自动修改现有规则。
+
 ## 28. 真实预测可视化与误差分析
 
 ### 3 epochs

@@ -206,6 +206,10 @@ python prepare_yolo_detection_dataset.py --overwrite
 
 脚本读取同一份共享样本列表，按 U-Net 的 seed=0 和 80/20 规则划分（当前为 train 363 张、val 91 张），直接复制原始 RGB 图到 `data/yolo_weedmap_detect/images/{train,val}`，并在 `labels/{train,val}` 写出对应标签和空目标图片的空 `.txt`。当前格式为 `0=crop`、`1=weed`，不输出 background；使用八连通区域生成 bbox。脚本现有默认值会跳过 component 面积小于 20 像素、框宽或高小于 4 像素、框面积超过图像面积 25% 的框；这些只是 smoke test 使用的默认值，尚未经 bbox 分布统计与可视化验证，不能当作最终过滤规则。可通过 `--min-area`、`--min-box-width`、`--min-box-height`、`--max-box-area-ratio` 调整，并可用 `--skip-border-touching` 跳过接触图像边界的框。终端输出保留的 crop/weed 框数，以及 `skipped small boxes`、`skipped huge boxes`、`skipped border boxes` 数量。`data.yaml` 写在输出目录。还可用 `--data-root`、`--sample-list-csv`、`--output-dir`、`--seed` 调整；已有非空输出目录时需使用 `--overwrite`，否则请选择空目录。此步骤仅准备检测数据，不训练模型。
 
+### YOLO bbox statistics before optimization
+
+运行 `python analyze_yolo_bbox_statistics.py` 分析当前检测数据集的标签质量，逐框结果保存到 `outputs/yolo_bbox_statistics.csv`，四张分布图保存到 `reports/assets/`。当前 YOLO 标签来自 semantic mask 的 connected components，并非人工 instance bbox。统计结果供后续决定 min-area、max-area-ratio、min-width、min-height 等过滤规则；此步骤不会自动修改过滤规则。
+
 ### YOLO 检测流程：数据集构建阶段与推理后处理阶段
 
 **A. Detection Dataset 构建：** WeedMap semantic mask → target mask → connected components → component bbox → bbox statistics → visualization / statistical analysis → dataset bbox filtering rules → YOLO labels → Detection Dataset。

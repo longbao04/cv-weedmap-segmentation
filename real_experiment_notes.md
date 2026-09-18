@@ -583,3 +583,7 @@ VCR 统计显示 WeedMap common split 以密集植被覆盖场景为主，因此
 | weed | 0.114 | — |
 
 这次 smoke test 仅用于验证 YOLO 数据格式和训练流程可用，不用于与 U-Net 正式比较。当前 YOLO 标签由 segmentation mask 自动转换，不是人工 bbox 标注；后续检测结果需要谨慎解释。
+
+### YOLO bbox statistics before optimization
+
+运行 `python analyze_yolo_bbox_statistics.py` 对当前 YOLO detection dataset 做优化前的标签质量分析，输出逐框 CSV `outputs/yolo_bbox_statistics.csv` 和 `reports/assets/` 下的四张分布图。标签来自 semantic mask 的 connected components，不是人工 instance bbox。bbox 尺寸与面积比例统计用于后续决定 min-area、max-area-ratio、min-width、min-height 等过滤规则；暂不根据结果自动修改规则。
