@@ -97,5 +97,9 @@ YOLO 支线的标签由 **semantic mask → connected components → bbox → YO
 
 ### D. VCR regression scene router
 
-- 先准备包含四波段路径、连续 VCR、scene type、subset 和 split 的独立样本清单。
-- 再按相同设置比较 Tiny CNN、SE-Tiny CNN 和 CBAM-Tiny CNN，不在本阶段启动训练。
+- 已新增 `prepare_vcr_regression_dataset.py`，并生成 `outputs/vcr_regression_samples.csv`。
+- manifest 包含 sample ID、split、subset、frame ID、G/R/RE/NIR 路径、连续 VCR 和 scene type；明确排除 NDVI 输入。
+- 文件与标签一致性检查通过：454 条记录，train/val=363/91，sparse/transition/dense=13/9/432，共 5 个 common-split subsets。
+- 已实现 Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN，参数量分别为 72,513、75,341、75,635；三种结构前向检查通过。
+- 训练入口支持 Huber/MAE、scene weighting、规定的数据增强、manifest split/subset holdout，以及完整回归与路由指标；三种模型的 1-epoch smoke test 均已通过。
+- 下一步按相同设置运行三种结构的正式多 seed 与 subset holdout 对比；当前尚无正式训练结论。

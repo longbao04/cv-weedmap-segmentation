@@ -750,6 +750,18 @@ CNN 输入只使用 `G/R/RE/NIR` 四个原始波段，不输入 NDVI。VCR 标�
 
 增强仅采用 horizontal/vertical flip、90-degree rotation 和 mild spectral jitter。除非重新计算裁剪区域 VCR，否则不使用 random crop。可选分类 baseline 使用 dense（432）与 non-dense（22）二分类，初始 class weights 为 0.526 与 10.318，并避免同时强力使用 class weight 和 oversampling。由于 non-dense 只有 22 张，该实验属于 CNN-Attention scene routing 的探索性研究，不能视为稳定部署验证。
 
+#### VCR regression dataset preparation
+
+已新增并实际运行 `prepare_vcr_regression_dataset.py`。脚本以现有 VCR summary 为来源，验证 sample ID、split、VCR 数值范围、scene threshold、重复样本和四波段文件完整性，生成 `outputs/vcr_regression_samples.csv`。输出包含 `sample_id`、`split`、`subset`、`frame_id`、G/R/RE/NIR path、连续 `VCR` 和 `scene_type`，不包含 NDVI path。
+
+实际校验结果为 454 条样本，train 363、val 91；sparse 13、transition 9、dense 432；覆盖 5 个 common-split subsets。该文件作为后续 Tiny CNN、SE-Tiny CNN 和 CBAM-Tiny CNN 的统一数据入口。当前阶段只完成数据准备，没有启动 scene router 训练。
+
+#### Router model and training code
+
+已新增 `vcr_router_models.py`，在同一三阶段轻量 CNN 骨架上实现无 attention、SE 和 CBAM 三种 VCR regressor，参数量分别为 72,513、75,341 和 75,635。所有模型输入 G/R/RE/NIR 四通道，输出 `[0, 1]` 范围内的单个 predicted VCR。
+
+`train_vcr_router.py` 已打通 manifest 加载、全图语义安全增强、Huber/MAE loss、可选 sqrt-inverse scene weighting、manifest split 或 subset-level holdout、best checkpoint 与预测保存。评估输出 MAE、RMSE、accuracy、balanced accuracy、macro F1、sparse/non-dense recall、PR-AUC、MCC 和 confusion matrix。三种结构的前向检查和 1-epoch 小尺寸 smoke test 均通过；smoke test 仅验证工程链路，不作为正式实验结果。正式多 seed/holdout 对比尚未启动。
+
 ## 27. YOLO / U-Net 路线选择标准
 
 无人机多光谱图像 → NDVI / 植物-土壤区分指标 → 计算 VCR → 判断 sparse / transition / dense。

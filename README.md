@@ -98,6 +98,25 @@ common split 共 454 张，VCR 均值 0.7928、中位数 0.9116、最小值 0.00
 
 可选分类 baseline 采用 dense 与 non-dense（sparse + transition）二分类，对应 432 与 22 张；初始 class weights 为 dense 0.526、non-dense 10.318。可比较 Tiny CNN、SE-Tiny CNN 和 CBAM-Tiny CNN 的 weighted loss 版本，但不同时强力使用 class weight 与 oversampling，避免过度补偿。由于 non-dense 只有 22 张，该模块属于 CNN-Attention scene routing 的探索性研究，不能视为稳定部署验证。
 
+数据准备脚本 `prepare_vcr_regression_dataset.py` 已完成。它读取现有 VCR summary，校验 sample ID、split、VCR 范围、scene threshold 一致性、样本唯一性及四波段文件是否存在，并生成 `outputs/vcr_regression_samples.csv`：
+
+```bash
+python prepare_vcr_regression_dataset.py
+```
+
+输出字段为 `sample_id, split, subset, frame_id, G_path, R_path, RE_path, NIR_path, VCR, scene_type`，不包含 NDVI path。实际检查通过 454 张样本、363/91 train/val、13/9/432 sparse/transition/dense，覆盖 5 个 common-split subsets。该 manifest 是后续 Tiny CNN、SE 和 CBAM 回归实验的统一输入清单；当前尚未启动路由器训练。
+
+路由器模型与训练入口也已实现。`vcr_router_models.py` 提供 Tiny CNN、SE-Tiny CNN 和 CBAM-Tiny CNN，参数量分别为 72,513、75,341 和 75,635，均接收四通道输入并通过 sigmoid 输出 `[0, 1]` 内的单个 VCR。`train_vcr_router.py` 支持 Huber/MAE、可选 sqrt-inverse scene weighting、保持覆盖率语义的数据增强、manifest split 或 `--val-subset` subset-level holdout，并保存 best checkpoint、history、逐样本预测和 run summary。
+
+```bash
+python train_vcr_router.py --model tiny --seed 0
+python train_vcr_router.py --model se --seed 0
+python train_vcr_router.py --model cbam --seed 0
+python train_vcr_router.py --model tiny --val-subset RedEdge_002 --seed 0
+```
+
+训练脚本直接计算 MAE、RMSE、三场景 accuracy、balanced accuracy、macro F1、sparse recall，以及二值 non-dense recall、PR-AUC、MCC 和 confusion matrix。三种结构均已通过前向检查和 1-epoch 小尺寸 smoke test；smoke 数值不作为正式实验结果。目前尚未运行正式多 seed 对比。
+
 ### 8. YOLO / U-Net 路线选择标准
 
 无人机多光谱图像 → NDVI / 植物-土壤区分指标 → 计算 VCR → 判断 sparse / transition / dense：

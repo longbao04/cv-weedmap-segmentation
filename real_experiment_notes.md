@@ -529,6 +529,22 @@ WeedMap common split 共 454 张；VCR 均值 0.7928、中位数 0.9116、最小
 
 可选分类 baseline 使用 dense（432）与 non-dense = sparse + transition（22）二分类，初始 class weights 为 dense 0.526、non-dense 10.318。可比较 Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN 的 weighted loss 版本；class weight 与 oversampling 不同时强力使用，避免过度补偿。由于 non-dense 只有 22 张，该实验只能作为 CNN-Attention scene routing 的探索性证据，不能视为稳定部署验证。
 
+### VCR regression dataset preparation result
+
+已新增并运行 `prepare_vcr_regression_dataset.py`。脚本读取 `outputs/weedmap_vegetation_coverage_summary.csv`，逐行验证必需字段、sample ID、train/val split、VCR `[0, 1]` 范围、VCR 与 scene type 阈值的一致性、样本唯一性，以及 G/R/RE/NIR 四个波段文件是否存在。输出保存为 `outputs/vcr_regression_samples.csv`，字段为：
+
+`sample_id, split, subset, frame_id, G_path, R_path, RE_path, NIR_path, VCR, scene_type`
+
+实际生成 454 条记录：train 363、val 91；sparse 13、transition 9、dense 432；来自 5 个 common-split subsets。清单明确排除 NDVI path，可直接作为后续 Tiny CNN、SE-Tiny CNN 和 CBAM-Tiny CNN 的统一回归输入。当前只完成数据 manifest 准备与校验，尚未训练 scene router。
+
+### VCR router model and training implementation
+
+已新增 `vcr_router_models.py` 与 `train_vcr_router.py`。模型文件实现 Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN，参数量分别为 72,513、75,341、75,635；三者使用相同三阶段卷积骨架、global average pooling 和 scalar sigmoid regression head，只改变 attention module。
+
+训练入口从四波段 manifest 加载 G/R/RE/NIR，支持 Huber 或 MAE、可选 sqrt-inverse scene weighting、flip/90-degree rotation/mild spectral jitter、既有 manifest split 及 `--val-subset` subset holdout。输出包括 best checkpoint、history CSV、best validation predictions 和 run summary。评估同时计算 MAE、RMSE、accuracy、balanced accuracy、macro F1、sparse recall、non-dense recall、non-dense PR-AUC、MCC 和 3×3 confusion matrix，不依赖 scikit-learn。
+
+结构前向检查已通过，Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN 的 1-epoch、90×120 输入 smoke test 也均已通过。该 smoke test 只验证数据读取、训练、验证、保存和指标链路，不记录为正式模型结果；正式 Tiny/SE/CBAM 多 seed 与 subset holdout 实验尚未开始。
+
 ## YOLO / U-Net 路线选择标准
 
 无人机多光谱图像 → NDVI / 植物-土壤区分指标 → 计算 VCR → 判断 sparse / transition / dense。
