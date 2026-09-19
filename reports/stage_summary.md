@@ -64,7 +64,17 @@ YOLO 支线的标签由 **semantic mask → connected components → bbox → YO
 - **Sparse vegetation：**单株或单簇目标相对独立，更容易转为 bbox；YOLO detection 可用于目标定位和点喷。
 - **当前路线：**WeedMap common split 中 dense 样本占 432 / 454（95.15%），所以当前主线是 segmentation；YOLO 是面向 sparse 场景的辅助路线，不替代分割主线。
 
-## 6. Future work
+## 6. VCR regression-based scene density router plan
+
+下一阶段计划构建 **VCR Regression-based Scene Density Router（基于 VCR 回归的稀疏/密集场景路由模块）**。输入为原始 `G/R/RE/NIR` 四个波段，输出一个连续 predicted VCR；不输入 NDVI，因为监督标签由 NDVI threshold 生成，直接输入 NDVI 会降低实验解释价值。直接计算 NDVI-VCR 的规则保留为零训练 baseline。
+
+候选模型为 Tiny CNN、Tiny CNN + SE 和 Tiny CNN + CBAM，保持训练设置一致并使用 Huber/MAE loss。预测结果按 `VCR < 0.20 → YOLO`、`0.20–0.30 → 双模型或人工确认`、`VCR > 0.30 → segmentation` 路由。
+
+当前类别分布为 sparse 13、transition 9、dense 432；validation 分布为 3、3、85。因此评估不能只报告 accuracy，还需报告 MAE、RMSE、sparse/non-dense recall、macro F1、balanced accuracy、PR-AUC、MCC 和 confusion matrix。少数样本集中在 `RedEdge_002`、`RedEdge_004`，需采用 repeated stratified cross-validation、subset-level holdout 和至少 3 seeds，检查相邻帧导致的空间泄漏。
+
+增强只使用 flip、90-degree rotation 和 mild spectral jitter；不直接 random crop，除非重新计算裁剪区域 VCR。可选 dense/non-dense 二分类 baseline 使用 432/22 样本及初始权重 0.526/10.318，但不同时强力叠加 class weight 与 oversampling。该阶段属于探索性研究，不构成稳定部署验证。
+
+## 7. Future work
 
 ### A. Segmentation robustness
 
@@ -84,3 +94,8 @@ YOLO 支线的标签由 **semantic mask → connected components → bbox → YO
 - 统一验证结果为 P=0.4773、R=0.5269、mAP50=0.4810、mAP50-95=0.2106；相较修正前初始实验的 mAP50=0.1284 已显著恢复。
 - 2.39M Params、2.55 GFLOPs、5.04 MB，分别比 YOLOv8n 减少约 20.6%、44.7%、18.9%。
 - mAP50 和 mAP50-95 仍分别低 0.0496 和 0.0850；当前 CPU inference 为 40.8 ms/image，慢于 baseline 的 10.4 ms/image，因此暂不替换 YOLOv8n r010。
+
+### D. VCR regression scene router
+
+- 先准备包含四波段路径、连续 VCR、scene type、subset 和 split 的独立样本清单。
+- 再按相同设置比较 Tiny CNN、SE-Tiny CNN 和 CBAM-Tiny CNN，不在本阶段启动训练。

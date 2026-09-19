@@ -730,6 +730,26 @@ sample0 是单张样本，不能代替整体验证集或三 seed 统计。方案
 
 WeedMap common split 共 454 张；VCR 均值 0.7928、中位数 0.9116、最小值 0.0000、最大值 0.9999。当前绝大多数样本属于高植被覆盖场景。阈值 0.20 / 0.30 是初始经验阈值，后续需要结合人工样本检查和实际除草需求进一步调整。
 
+### VCR regression-based scene density router
+
+下一阶段计划在整体 pipeline 前端加入 **VCR Regression-based Scene Density Router（基于 VCR 回归的稀疏/密集场景路由模块）**。模块从多光谱 UAV 图像预测连续 VCR，然后根据阈值选择 YOLO detection、semantic segmentation，或对 transition 场景运行双模型/人工确认。采用连续回归而不是 sparse / transition / dense 三分类，可以保留更多覆盖度信息，并允许部署阶段调整路由阈值而无需重新训练。
+
+现有 `outputs/weedmap_vegetation_coverage_summary.csv` 已包含每张图像的 VCR、scene type 和 train/val split。数据总量为 454，其中 sparse 13、transition 9、dense 432；validation 中分别只有 3、3、85。直接三分类容易全部预测 dense 并获得虚高 accuracy。
+
+CNN 输入只使用 `G/R/RE/NIR` 四个原始波段，不输入 NDVI。VCR 标签由 NDVI threshold 生成，若将 NDVI 直接作为输入，网络可能只是复现标签规则，使 attention 对比缺乏解释力。直接计算 NDVI-VCR 的规则保留为零训练强 baseline。
+
+首轮比较 Tiny CNN、Tiny CNN + SE attention 和 Tiny CNN + CBAM attention，保持其余训练条件一致。模型输出一个 predicted VCR scalar，使用 Huber loss 或 MAE loss。路由规则如下：
+
+| Predicted VCR | 场景/处理 | 后续分支 |
+| --- | --- | --- |
+| < 0.20 | sparse | YOLO detection |
+| 0.20–0.30 | transition | 双模型或人工确认 |
+| > 0.30 | dense | semantic segmentation |
+
+评估报告 MAE、RMSE，以及阈值化后的 sparse/non-dense recall、macro F1、balanced accuracy、PR-AUC、MCC 和 confusion matrix；accuracy 只作辅助。validation sparse 只有 3 张，sparse recall 每错一张即变化约 33.3%。少数样本主要集中在 `RedEdge_002` 和 `RedEdge_004`，相邻帧可能相似，简单随机划分存在空间泄漏风险；后续使用 repeated stratified cross-validation、subset-level holdout generalization test 和至少 3 个 random seeds。
+
+增强仅采用 horizontal/vertical flip、90-degree rotation 和 mild spectral jitter。除非重新计算裁剪区域 VCR，否则不使用 random crop。可选分类 baseline 使用 dense（432）与 non-dense（22）二分类，初始 class weights 为 0.526 与 10.318，并避免同时强力使用 class weight 和 oversampling。由于 non-dense 只有 22 张，该实验属于 CNN-Attention scene routing 的探索性研究，不能视为稳定部署验证。
+
 ## 27. YOLO / U-Net 路线选择标准
 
 无人机多光谱图像 → NDVI / 植物-土壤区分指标 → 计算 VCR → 判断 sparse / transition / dense。

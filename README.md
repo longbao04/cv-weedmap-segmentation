@@ -76,6 +76,28 @@ WeedMap 的 sugar beet field（甜菜田）场景与导师提出的水稻/柑橘
 
 common split 共 454 张，VCR 均值 0.7928、中位数 0.9116、最小值 0.0000、最大值 0.9999。阈值 0.20 / 0.30 是初始经验阈值，后续需结合人工样本检查和实际除草需求调整。
 
+### VCR regression-based scene density router
+
+项目计划在整体 pipeline 前端加入 **VCR Regression-based Scene Density Router（基于 VCR 回归的稀疏/密集场景路由模块）**，根据场景植被覆盖程度选择后续的 YOLO detection 或 semantic segmentation 分支。该模块不直接训练 sparse / transition / dense 三分类器，而是从多光谱图像预测一个连续 VCR，再使用可调整阈值执行路由。连续回归保留的信息更多，也避免阈值变化时重新训练分类器。
+
+现有 `outputs/weedmap_vegetation_coverage_summary.csv` 已记录每张图像的 VCR、scene type 和 train/val split。common split 共 454 张，其中 sparse 13 张、transition 9 张、dense 432 张；当前 validation split 为 sparse 3 张、transition 3 张、dense 85 张。若直接训练三分类器，模型全部预测 dense 也会获得虚高 accuracy，因此 accuracy 只能作为辅助指标。
+
+路由器输入只使用原始 `G/R/RE/NIR` 四个波段，不输入 NDVI。VCR 标签由 NDVI threshold 生成；将 NDVI 同时作为输入会使模型容易直接复现标签生成规则，削弱 CNN 与 attention 对比的实验意义。直接计算 NDVI-VCR 的确定性规则保留为零训练强 baseline。
+
+首轮模型保持训练设置一致，只改变 attention module：
+
+- Tiny CNN；
+- Tiny CNN + SE attention；
+- Tiny CNN + CBAM attention。
+
+每个模型输出一个 scalar predicted VCR，使用 Huber loss 或 MAE loss。根据预测值执行：`VCR < 0.20 → YOLO detection`，`0.20 ≤ VCR ≤ 0.30 → transition，运行双模型或人工确认`，`VCR > 0.30 → semantic segmentation`。
+
+回归指标报告 MAE 和 RMSE；阈值化后还需报告 sparse / non-dense recall、macro F1、balanced accuracy、PR-AUC、MCC 和 confusion matrix。当前 validation 中 sparse 只有 3 张，sparse recall 每错一张就变化约 33.3%，因此不能只看单次划分。少数样本主要集中在 `RedEdge_002` 和 `RedEdge_004`，相邻帧可能高度相似；后续采用 repeated stratified cross-validation、subset-level holdout generalization test 和至少 3 个 random seeds，并明确随机划分可能带来的空间数据泄漏风险。
+
+数据增强仅使用保持整图覆盖率语义的 horizontal flip、vertical flip、90-degree rotation 和 mild spectral jitter。除非为裁剪区域重新计算 VCR，否则不使用 random crop，以免图像内容与整图 VCR 标签不一致。
+
+可选分类 baseline 采用 dense 与 non-dense（sparse + transition）二分类，对应 432 与 22 张；初始 class weights 为 dense 0.526、non-dense 10.318。可比较 Tiny CNN、SE-Tiny CNN 和 CBAM-Tiny CNN 的 weighted loss 版本，但不同时强力使用 class weight 与 oversampling，避免过度补偿。由于 non-dense 只有 22 张，该模块属于 CNN-Attention scene routing 的探索性研究，不能视为稳定部署验证。
+
 ### 8. YOLO / U-Net 路线选择标准
 
 无人机多光谱图像 → NDVI / 植物-土壤区分指标 → 计算 VCR → 判断 sparse / transition / dense：
