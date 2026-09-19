@@ -42,7 +42,7 @@
 
 YOLO 支线的标签由 **semantic mask → connected components → bbox → YOLO labels** 自动生成。这些 bbox 是从 semantic masks 得到的 pseudo boxes，并非人工 instance annotations；一个 connected component 不一定对应一株植物。
 
-已完成 bbox statistics、r020/r010 `max-box-area-ratio` 对比、weed-only 对照、prediction visualization、confidence threshold 的单样本观察，以及 lightweight baseline summary。
+已完成 bbox statistics、r020/r015/r010 `max-box-area-ratio` 对比、weed-only 对照、prediction visualization、confidence threshold 的完整验证集 PR/F1 sweep，以及 lightweight baseline summary。
 
 当前最佳 YOLO 基线为 **YOLOv8n crop+weed r010**。其 5 epochs 实验结果如下：
 
@@ -74,11 +74,13 @@ YOLO 支线的标签由 **semantic mask → connected components → bbox → YO
 
 ### B. YOLO post-processing
 
-- 系统评估 confidence threshold 与 NMS IoU threshold 对预测结果的影响。
-- 检查 PR/F1 curves，并测量 inference speed。
+- 根据实际误喷与漏喷成本，在当前 F1 最佳起点 `conf≈0.16` 周围做部署校准。
+- 当前 CPU 完整验证 inference 约 10.4 ms/image；部署前需在目标硬件上重新测速。
 
-### C. MobileNetV3-YOLOv8n planned experiment
+### C. MobileNetV3-YOLOv8n architecture experiment
 
-- 尝试 MobileNetV3-style lightweight backbone，保留 YOLOv8 neck、detect head 与 anchor-free framework。
-- 在统一条件下比较 mAP、Params、GFLOPs、model size 和 inference speed。
-- 该实验目前仅为计划，尚未实现。
+- 已实现 MobileNetV3-Small backbone + YOLOv8-style PAN-FPN + anchor-free Detect head。
+- 已修正 ImageNet 预训练 backbone 的输入归一化，并完成 5 epochs backbone freeze warm-up + 20 epochs 全模型 fine-tuning。
+- 统一验证结果为 P=0.4773、R=0.5269、mAP50=0.4810、mAP50-95=0.2106；相较修正前初始实验的 mAP50=0.1284 已显著恢复。
+- 2.39M Params、2.55 GFLOPs、5.04 MB，分别比 YOLOv8n 减少约 20.6%、44.7%、18.9%。
+- mAP50 和 mAP50-95 仍分别低 0.0496 和 0.0850；当前 CPU inference 为 40.8 ms/image，慢于 baseline 的 10.4 ms/image，因此暂不替换 YOLOv8n r010。

@@ -1,0 +1,35 @@
+# MobileNetV3-Small backbone with a YOLOv8-style PAN-FPN and anchor-free Detect head.
+# The TorchVision layer returns intermediate feature maps. Index layers select
+# P3/8 (24 channels), P4/16 (48 channels), and P5/32 (576 channels).
+
+nc: 2
+
+backbone:
+  # [from, repeats, module, args]
+  # Fixed grouped 1x1 convolution configured by the training script as
+  # (x - ImageNet mean) / ImageNet std.
+  - [-1, 1, nn.Conv2d, [3, 3, 1, 1, 0, 1, 3, true]]
+  - [-1, 1, TorchVision, [576, mobilenet_v3_small, null, true, 2, true]]
+  - [1, 1, Index, [24, 4]]   # P3/8: feature block 3
+  - [1, 1, Index, [48, 9]]   # P4/16: feature block 8
+  - [1, 1, Index, [576, 13]] # P5/32: final feature block
+  - [-1, 1, SPPF, [192, 5]]
+
+head:
+  - [-1, 1, nn.Upsample, [null, 2, nearest]]
+  - [[-1, 3], 1, Concat, [1]]
+  - [-1, 1, C2f, [96]]
+
+  - [-1, 1, nn.Upsample, [null, 2, nearest]]
+  - [[-1, 2], 1, Concat, [1]]
+  - [-1, 1, C2f, [48]]       # P3/8
+
+  - [-1, 1, Conv, [48, 3, 2]]
+  - [[-1, 8], 1, Concat, [1]]
+  - [-1, 1, C2f, [96]]       # P4/16
+
+  - [-1, 1, Conv, [96, 3, 2]]
+  - [[-1, 5], 1, Concat, [1]]
+  - [-1, 1, C2f, [192]]      # P5/32
+
+  - [[11, 14, 17], 1, Detect, [nc]]

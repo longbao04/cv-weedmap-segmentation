@@ -17,6 +17,7 @@ RUN_ROOT = ROOT / "runs/detect/runs/yolo_weedmap_compare"
 OUTPUT = ROOT / "outputs/yolo_baseline_summary.csv"
 EXPERIMENTS = (
     ("r020_5epochs", "crop+weed", "crop,weed", 0.20),
+    ("r015_5epochs", "crop+weed", "crop,weed", 0.15),
     ("r010_5epochs", "crop+weed", "crop,weed", 0.10),
     ("weed_only_r010_5epochs", "weed-only", "weed", 0.10),
 )

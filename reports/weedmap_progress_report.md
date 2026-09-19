@@ -763,6 +763,7 @@ YOLO 网络输出候选框、类别和置信度。confidence filtering 去掉低
 | 设置 | max-box-area-ratio | min-area | min-box-width | min-box-height |
 | --- | ---: | ---: | ---: | ---: |
 | r020 baseline | 0.20 | 80 | 6 | 6 |
+| r015 | 0.15 | 80 | 6 | 6 |
 | r010 | 0.10 | 80 | 6 | 6 |
 
 | 设置 | 类别 | P | R | mAP50 | mAP50-95 |
@@ -770,11 +771,14 @@ YOLO 网络输出候选框、类别和置信度。confidence filtering 去掉低
 | r020 baseline | all | 0.498 | 0.594 | 0.526 | 0.291 |
 | r020 baseline | crop | 0.525 | 0.650 | 0.595 | 0.370 |
 | r020 baseline | weed | 0.470 | 0.538 | 0.457 | 0.212 |
+| r015 | all | 0.508 | 0.587 | 0.530 | 0.297 |
+| r015 | crop | 0.522 | 0.672 | 0.616 | 0.387 |
+| r015 | weed | 0.492 | 0.505 | 0.445 | 0.206 |
 | r010 | all | 0.505 | 0.591 | 0.531 | 0.296 |
 | r010 | crop | 0.527 | 0.652 | 0.601 | 0.376 |
 | r010 | weed | 0.482 | 0.530 | 0.460 | 0.215 |
 
-将 `max-box-area-ratio` 从 0.20 降至 0.10 后，all mAP50 从 0.526 小幅升至 0.531，weed mAP50 从 0.457 小幅升至 0.460，但 weed recall 从 0.538 小幅降至 0.530。更严格的大粘连框过滤没有破坏 YOLO 训练流程，并带来非常小的精度提升；提升幅度有限，不能认为 r010 已显著优于 baseline。后续可继续测试 r015；weed-only detection 对照见下节。YOLO 当前仍是 detection pipeline 和稀疏场景候选路线；WeedMap common split 仍以 dense 场景为主，语义分割主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4。
+r015 的 all mAP50（0.530）和 r010（0.531）几乎持平，mAP50-95 略高，但 weed recall、weed mAP50 和 weed mAP50-95 均低于 r010。综合整体与 weed 类指标，r010 继续作为当前最佳过滤设置；三组差异很小，不能声称过滤阈值带来显著提升。weed-only detection 对照见下节。
 
 新增 `data/yolo_weedmap_detect_weed_only_r010` 数据集版本（`--target-classes weed_only`），仅保留 weed 框并映射为 class 0，用于测试只检测 weed 是否比 crop+weed detection 更适合精准除草。标签仍由 semantic mask connected components 生成，不是人工 instance bbox；5 epochs 对照结果如下。
 
@@ -833,19 +837,22 @@ confidence threshold 是当前比较中影响预测框数量的主要因素：�
 
 **限制：**本分析只统计预测框数量和平均置信度，没有直接计算 TP、FP、FN，因此不能说明 `conf=0.40` 是最终最优阈值。最终阈值仍需结合人工可视化、PR/F1 曲线或验证集 detection metrics 判断。
 
+完整验证集 PR/F1 sweep 表明，r010 best checkpoint 的平均 F1 在 `conf≈0.164` 达到最高值 0.544；crop 与 weed 各自的最佳 F1 阈值分别约为 0.164 和 0.169。候选 `conf=0.25/0.30/0.40/0.50` 的平均 F1 分别为 0.509、0.466、0.364、0.247。`conf=0.40` 的平均 precision 约 0.747，但平均 recall 仅约 0.241，因此它只作为干净展示候选；需要平衡 precision/recall 时应从 `conf≈0.16` 开始，再结合误喷与漏喷成本校准。当前 CPU 完整验证的 inference 约为 10.4 ms/image。
+
 ### YOLO baseline lightweight metrics
 
-`summarize_yolo_baselines.py` 将 crop+weed r020、crop+weed r010、weed-only r010 的 5 epochs run 汇总到 `outputs/yolo_baseline_summary.csv`。检测指标取 `results.csv` 最后一轮 all-class 值，Params、GFLOPs（imgsz=480）和 model size 取 `best.pt`；跨两类与单类数据集比较时需注意指标口径。
+`summarize_yolo_baselines.py` 将 crop+weed r020、r015、r010 和 weed-only r010 的 5 epochs run 汇总到 `outputs/yolo_baseline_summary.csv`。检测指标取 `results.csv` 最后一轮 all-class 值，Params、GFLOPs（imgsz=480）和 model size 取 `best.pt`；跨两类与单类数据集比较时需注意指标口径。
 
 | Run | 检测类别 | Precision | Recall | mAP50 | mAP50-95 | Params | GFLOPs | Model Size (MB) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `r020_5epochs` | crop+weed | 0.49736 | 0.59299 | 0.52611 | 0.29074 | 3,011,238 | 4.608432 | 6.21425 |
+| `r015_5epochs` | crop+weed | 0.50758 | 0.58699 | 0.53032 | 0.29651 | 3,011,238 | 4.608432 | 6.21425 |
 | `r010_5epochs` | crop+weed | 0.50539 | 0.58950 | 0.53062 | 0.29557 | 3,011,238 | 4.608432 | 6.21425 |
 | `weed_only_r010_5epochs` | weed-only | 0.43149 | 0.48721 | 0.42087 | 0.18213 | 3,011,043 | 4.6078272 | 6.213866 |
 
 当前最佳 YOLO baseline 是 crop+weed `r010_5epochs`：mAP50 为 0.53062，mAP50-95 为 0.29557，模型参数量约 3.01M、GFLOPs 约 4.61、模型大小约 6.21 MB。
 
-这些数值将作为后续 MobileNetV3-YOLOv8n 轻量化改造的对照基线。该改造目前只是计划，尚未实现；后续若改造 YOLOv8n backbone，需要在一致条件下同时比较 detection metrics（Precision、Recall、mAP50、mAP50-95）和 lightweight metrics（Params、GFLOPs、Model Size、inference speed），并保持测速条件一致。当前项目主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4 语义分割。
+这些数值作为 MobileNetV3-YOLOv8n 轻量化改造的对照基线。已完成 MobileNetV3-Small backbone + YOLOv8-style PAN-FPN + anchor-free Detect head、ImageNet 输入归一化适配，以及 5 epochs backbone freeze warm-up + 20 epochs 全模型 fine-tuning。统一验证得到 P=0.4773、R=0.5269、mAP50=0.4810、mAP50-95=0.2106；相比归一化修正前 5-epoch 初始实验的 mAP50=0.1284 已显著恢复。模型为 2.39M Params、2.55 GFLOPs、5.04 MB，分别比 YOLOv8n 减少约 20.6%、44.7%、18.9%；但 mAP50 和 mAP50-95 仍分别低 0.0496 和 0.0850，当前 CPU inference 40.8 ms/image 也慢于 baseline 的 10.4 ms/image，因此暂不替换 YOLOv8n r010。当前项目主线仍是 MobileNetV2ShallowUNet + boundary CE r5_w4 语义分割。
 
 ## 28. 真实预测可视化与误差分析
 
@@ -963,15 +970,15 @@ confidence threshold 是当前比较中影响预测框数量的主要因素：�
 
 **A. Semantic segmentation main line.** 当前最强设置是 `MobileNetV2ShallowUNet + boundary weighted CE r5_w4`：Mean IoU = 76.71% ± 0.55%，Weed IoU = 59.82% ± 0.64%，Pixel accuracy = 96.98% ± 0.24%。这是目前 WeedMap common split 上最强的语义分割设置；相比 `SmallUNet + weighted CE`，Mean IoU 和 Weed IoU 均有提升。
 
-**B. YOLO detection auxiliary line.** 当前最佳 YOLO baseline 是 `YOLOv8n crop+weed r010`：Precision = 0.50539，Recall = 0.58950，mAP50 = 0.53062，mAP50-95 = 0.29557，Params ≈ 3.01M，GFLOPs ≈ 4.61，Model size ≈ 6.21 MB。检测支线已完成 bbox statistics、r020/r010 对比、weed-only 对照实验、prediction visualization、post-processing threshold 框数统计和 lightweight baseline summary。
+**B. YOLO detection auxiliary line.** 当前最佳 YOLO baseline 是 `YOLOv8n crop+weed r010`：Precision = 0.50539，Recall = 0.58950，mAP50 = 0.53062，mAP50-95 = 0.29557，Params ≈ 3.01M，GFLOPs ≈ 4.61，Model size ≈ 6.21 MB。检测支线已完成 bbox statistics、r020/r015/r010 对比、weed-only 对照实验、prediction visualization、完整验证集 PR/F1 threshold sweep 和 lightweight baseline summary。
 
 #### 2. Short-term next experiments
 
 **A. Segmentation robustness check.** 后续增加 random seeds，检查更多 validation samples 的预测图，分析错误是否仍主要集中在 crop/weed 边界区域，并统计最强分割模型的参数量、模型大小和推理速度。这些是后续验证计划，当前不启动训练。
 
-**B. YOLO post-processing analysis.** 已统计 `YOLOv8n crop+weed r010` 在前 20 张 validation images 上不同 confidence threshold 与 NMS IoU threshold 下的预测框数量和平均置信度。后续需结合人工可视化、PR/F1 曲线及验证集 detection metrics 判断误检、漏检和最终阈值，并检查 confusion matrix 和 inference speed。confidence filtering 与 NMS 属于 inference post-processing，不属于 backbone，也不是 dataset bbox filtering。
+**B. YOLO post-processing analysis.** 已完成 `YOLOv8n crop+weed r010` 的框数统计、完整验证集 PR/F1 sweep、confusion matrix 和 CPU inference speed 检查。平均 F1 最佳起点为 `conf≈0.16`；`conf=0.40` 仅作为更干净的展示候选。部署前仍需根据实际误喷与漏喷成本及目标硬件重新校准。
 
-**C. MobileNetV3-YOLOv8n design.** 在 YOLOv8n baseline 稳定后，可尝试用 MobileNetV3-style lightweight backbone 替换或改造 YOLOv8n backbone，保留 YOLOv8 的 Neck、Detect Head 和 anchor-free detection framework；在相同评估条件下比较 Precision、Recall、mAP50、mAP50-95、Params、GFLOPs、Model size 和 Inference speed。MobileNetV3-YOLOv8n 目前仅是 future work / planned experiment，尚未实现。
+**C. MobileNetV3-YOLOv8n design.** 输入归一化适配、backbone freeze warm-up 和 20 epochs 全模型 fine-tuning 已完成。两阶段模型达到 mAP50=0.4810、mAP50-95=0.2106，并减少约 20.6% 参数量和 44.7% GFLOPs；但精度仍低于 YOLOv8n，当前 CPU latency 更高，因此暂不替换 baseline。
 
 #### 3. Medium-term paper/report structure
 
