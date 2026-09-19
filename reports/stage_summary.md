@@ -102,4 +102,7 @@ YOLO 支线的标签由 **semantic mask → connected components → bbox → YO
 - 文件与标签一致性检查通过：454 条记录，train/val=363/91，sparse/transition/dense=13/9/432，共 5 个 common-split subsets。
 - 已实现 Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN，参数量分别为 72,513、75,341、75,635；三种结构前向检查通过。
 - 训练入口支持 Huber/MAE、scene weighting、规定的数据增强、manifest split/subset holdout，以及完整回归与路由指标；三种模型的 1-epoch smoke test 均已通过。
-- 下一步按相同设置运行三种结构的正式多 seed 与 subset holdout 对比；当前尚无正式训练结论。
+- 已完成 manifest split 上的 30 epochs、三 seed 正式对比。Tiny/SE/CBAM 的 MAE 分别为 0.1014±0.0101、0.1055±0.0044、0.0923±0.0133。
+- CBAM 平均 MAE 最低，但 sparse recall 仅 0.1111±0.1925，且三 seed 中两个仍为 0；Tiny 与 SE 的 sparse recall 均为 0。
+- 当前 validation majority-dense baseline 已有约 93.41% accuracy，因此模型约 92%–93% accuracy 不代表 routing 成功。attention 尚未稳定解决少数场景召回问题，不能作为部署结论。
+- 下一步进行 threshold calibration、subset-level holdout 和受控的少数区间采样/损失对比。

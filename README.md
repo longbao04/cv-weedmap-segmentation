@@ -115,7 +115,17 @@ python train_vcr_router.py --model cbam --seed 0
 python train_vcr_router.py --model tiny --val-subset RedEdge_002 --seed 0
 ```
 
-训练脚本直接计算 MAE、RMSE、三场景 accuracy、balanced accuracy、macro F1、sparse recall，以及二值 non-dense recall、PR-AUC、MCC 和 confusion matrix。三种结构均已通过前向检查和 1-epoch 小尺寸 smoke test；smoke 数值不作为正式实验结果。目前尚未运行正式多 seed 对比。
+训练脚本直接计算 MAE、RMSE、三场景 accuracy、balanced accuracy、macro F1、sparse recall，以及二值 non-dense recall、PR-AUC、MCC 和 confusion matrix。三种结构均已通过前向检查和 1-epoch 小尺寸 smoke test；smoke 数值不作为正式实验结果。
+
+三种模型的首轮正式对比已完成：manifest split、180×240、30 epochs、batch size 16、Huber loss、sqrt-inverse scene weighting、seeds 0/1/2，并按 validation MAE 选择每个 run 的 best checkpoint。汇总脚本 `summarize_vcr_router_experiments.py` 生成 `outputs/vcr_router_run_results.csv` 和 `outputs/vcr_router_model_summary.csv`。
+
+| 模型 | Params | MAE | RMSE | Accuracy | Balanced accuracy | Sparse recall | Non-dense recall | Non-dense PR-AUC |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Tiny CNN | 72,513 | 0.1014 ± 0.0101 | 0.1679 ± 0.0139 | 92.67% ± 0.63% | 0.3307 ± 0.0023 | 0.0000 ± 0.0000 | 0.0000 ± 0.0000 | 0.3299 ± 0.1115 |
+| SE-Tiny CNN | 75,341 | 0.1055 ± 0.0044 | 0.1715 ± 0.0086 | 92.31% ± 0.00% | 0.3294 ± 0.0000 | 0.0000 ± 0.0000 | 0.0556 ± 0.0962 | 0.4105 ± 0.0276 |
+| CBAM-Tiny CNN | 75,635 | **0.0923 ± 0.0133** | **0.1656 ± 0.0084** | 93.04% ± 2.29% | **0.4392 ± 0.1936** | **0.1111 ± 0.1925** | **0.1667 ± 0.2887** | 0.3586 ± 0.1729 |
+
+CBAM 获得最低平均 MAE，但 routing 指标波动很大：三个 seed 中只有一个 best-MAE checkpoint 检出部分 sparse/non-dense，另外两个仍漏掉全部 sparse。全部预测 dense 的 majority baseline 在当前 validation 上即可达到 85/91≈93.41% accuracy，因此三组约 92%–93% accuracy 不能证明路由有效。现阶段 attention 只表现出初步的回归误差改善迹象，尚未解决少数场景召回问题；不能宣称 CBAM 已形成可部署 router，下一步应进行 threshold calibration、subset holdout 和更强的少数区间采样/损失对比。
 
 ### 8. YOLO / U-Net 路线选择标准
 

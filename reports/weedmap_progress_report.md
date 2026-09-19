@@ -760,7 +760,19 @@ CNN 输入只使用 `G/R/RE/NIR` 四个原始波段，不输入 NDVI。VCR 标�
 
 已新增 `vcr_router_models.py`，在同一三阶段轻量 CNN 骨架上实现无 attention、SE 和 CBAM 三种 VCR regressor，参数量分别为 72,513、75,341 和 75,635。所有模型输入 G/R/RE/NIR 四通道，输出 `[0, 1]` 范围内的单个 predicted VCR。
 
-`train_vcr_router.py` 已打通 manifest 加载、全图语义安全增强、Huber/MAE loss、可选 sqrt-inverse scene weighting、manifest split 或 subset-level holdout、best checkpoint 与预测保存。评估输出 MAE、RMSE、accuracy、balanced accuracy、macro F1、sparse/non-dense recall、PR-AUC、MCC 和 confusion matrix。三种结构的前向检查和 1-epoch 小尺寸 smoke test 均通过；smoke test 仅验证工程链路，不作为正式实验结果。正式多 seed/holdout 对比尚未启动。
+`train_vcr_router.py` 已打通 manifest 加载、全图语义安全增强、Huber/MAE loss、可选 sqrt-inverse scene weighting、manifest split 或 subset-level holdout、best checkpoint 与预测保存。评估输出 MAE、RMSE、accuracy、balanced accuracy、macro F1、sparse/non-dense recall、PR-AUC、MCC 和 confusion matrix。三种结构的前向检查和 1-epoch 小尺寸 smoke test 均通过；smoke test 仅验证工程链路，不作为正式实验结果。
+
+#### Initial three-seed comparison
+
+首轮正式对比使用 manifest split、180×240、30 epochs、batch size 16、Huber loss、sqrt-inverse scene weighting 和 seeds 0/1/2，各 run 按 validation MAE 选择 best checkpoint。结果由 `summarize_vcr_router_experiments.py` 汇总到 `outputs/vcr_router_run_results.csv` 和 `outputs/vcr_router_model_summary.csv`。
+
+| 模型 | Params | MAE | RMSE | Accuracy | Balanced accuracy | Sparse recall | Non-dense recall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Tiny CNN | 72,513 | 0.1014 ± 0.0101 | 0.1679 ± 0.0139 | 92.67% ± 0.63% | 0.3307 ± 0.0023 | 0.0000 ± 0.0000 | 0.0000 ± 0.0000 |
+| SE-Tiny CNN | 75,341 | 0.1055 ± 0.0044 | 0.1715 ± 0.0086 | 92.31% ± 0.00% | 0.3294 ± 0.0000 | 0.0000 ± 0.0000 | 0.0556 ± 0.0962 |
+| CBAM-Tiny CNN | 75,635 | **0.0923 ± 0.0133** | **0.1656 ± 0.0084** | 93.04% ± 2.29% | **0.4392 ± 0.1936** | **0.1111 ± 0.1925** | **0.1667 ± 0.2887** |
+
+CBAM 的平均 MAE 最低，但路由结果不稳定。三个 CBAM seeds 中只有一个 best-MAE checkpoint 检出部分 sparse/non-dense，另外两个 sparse recall 仍为 0；Tiny 和 SE 三 seed sparse recall 全部为 0。全部预测 dense 的 validation majority baseline 已可获得 85/91≈93.41% accuracy，因此模型的总体 accuracy 不能证明有效。当前只能认为 CBAM 有初步回归误差改善迹象，attention 尚未解决极少数场景召回问题；下一步需做 threshold calibration、subset holdout 和少数 VCR 区间再平衡实验。
 
 ## 27. YOLO / U-Net 路线选择标准
 

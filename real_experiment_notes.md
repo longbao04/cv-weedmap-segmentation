@@ -543,7 +543,21 @@ WeedMap common split 共 454 张；VCR 均值 0.7928、中位数 0.9116、最小
 
 训练入口从四波段 manifest 加载 G/R/RE/NIR，支持 Huber 或 MAE、可选 sqrt-inverse scene weighting、flip/90-degree rotation/mild spectral jitter、既有 manifest split 及 `--val-subset` subset holdout。输出包括 best checkpoint、history CSV、best validation predictions 和 run summary。评估同时计算 MAE、RMSE、accuracy、balanced accuracy、macro F1、sparse recall、non-dense recall、non-dense PR-AUC、MCC 和 3×3 confusion matrix，不依赖 scikit-learn。
 
-结构前向检查已通过，Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN 的 1-epoch、90×120 输入 smoke test 也均已通过。该 smoke test 只验证数据读取、训练、验证、保存和指标链路，不记录为正式模型结果；正式 Tiny/SE/CBAM 多 seed 与 subset holdout 实验尚未开始。
+结构前向检查已通过，Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN 的 1-epoch、90×120 输入 smoke test 也均已通过。该 smoke test 只验证数据读取、训练、验证、保存和指标链路，不记录为正式模型结果。
+
+### Initial three-seed VCR regression results
+
+首轮正式实验使用 manifest split、180×240 输入、30 epochs、batch size 16、Huber loss、sqrt-inverse scene weighting、mild spectral jitter 和 seeds 0/1/2；每个 run 按 validation MAE 选择 best checkpoint。`summarize_vcr_router_experiments.py` 已生成逐 run 与三 seed 汇总 CSV。
+
+| 模型 | Params | MAE | RMSE | Balanced accuracy | Sparse recall | Non-dense recall | PR-AUC | MCC |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Tiny CNN | 72,513 | 0.1014 ± 0.0101 | 0.1679 ± 0.0139 | 0.3307 ± 0.0023 | 0.0000 ± 0.0000 | 0.0000 ± 0.0000 | 0.3299 ± 0.1115 | -0.0187 ± 0.0162 |
+| SE-Tiny CNN | 75,341 | 0.1055 ± 0.0044 | 0.1715 ± 0.0086 | 0.3294 ± 0.0000 | 0.0000 ± 0.0000 | 0.0556 ± 0.0962 | 0.4105 ± 0.0276 | 0.0687 ± 0.1676 |
+| CBAM-Tiny CNN | 75,635 | **0.0923 ± 0.0133** | **0.1656 ± 0.0084** | **0.4392 ± 0.1936** | **0.1111 ± 0.1925** | **0.1667 ± 0.2887** | 0.3586 ± 0.1729 | **0.1744 ± 0.3609** |
+
+CBAM 的平均 MAE 比 Tiny CNN 低约 0.0091，但 balanced accuracy、sparse/non-dense recall 和 MCC 的标准差很大。CBAM 只有 seed 1 的 best-MAE checkpoint 找回部分少数场景；seed 0/2 的 sparse recall 仍为 0。Tiny 与 SE 的 sparse recall 三 seed 均为 0。当前 validation 的 majority-dense accuracy 为 85/91≈93.41%，高于或接近三个模型的总体 accuracy，因此高 accuracy 是类别不平衡造成的虚高表现。
+
+首轮结论是：attention 尚未稳定解决 routing 问题。CBAM 仅提供初步的 VCR 回归误差改善证据，不能据此宣称可部署或显著优于 Tiny CNN。后续需要做 prediction threshold calibration、subset-level holdout，以及更强但受控的少数 VCR 区间采样/损失实验；正式结论仍受 validation 只有 3 sparse + 3 transition 的限制。
 
 ## YOLO / U-Net 路线选择标准
 
