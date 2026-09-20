@@ -127,7 +127,7 @@ def build():
     setup(doc)
     doc.core_properties.title = "WeedMap 多光谱语义分割实验进度报告"
     doc.add_paragraph("WeedMap 多光谱语义分割实验进度报告", style="Title")
-    paragraph(doc, "面向导师的阶段性汇报。报告总结真实 WeedMap 数据处理、统一样本对照、三 seed 语义分割实验、VCR 场景分析，以及 YOLOv8n 检测支线和推理后处理阈值分析。当前语义分割主线最佳设置为 MobileNetV2ShallowUNet 方案 A + boundary weighted CE r5_w4：验证集 Pixel accuracy 96.98% ± 0.24%，Mean IoU 76.71% ± 0.55%，Weed IoU 59.82% ± 0.64%。YOLO 当前最佳 baseline 为 crop+weed r010，作为稀疏植被场景的候选路线。")
+    paragraph(doc, "面向导师的阶段性汇报。报告总结真实 WeedMap 数据处理、统一样本对照、三 seed 语义分割实验、VCR regression attention router，以及 YOLO 检测数据构建、后处理阈值和 MobileNetV3-Small-YOLOv8 轻量化实验。当前语义分割主线最佳设置为 MobileNetV2ShallowUNet 方案 A + boundary weighted CE r5_w4：验证集 Pixel accuracy 96.98% ± 0.24%，Mean IoU 76.71% ± 0.55%，Weed IoU 59.82% ± 0.64%。YOLOv8n crop+weed r010 仍是检测基线；MobileNetV3 变体减小了参数量和 GFLOPs，但精度及当前 CPU 延迟尚未超过该基线。")
 
     section(doc, 1, "项目目标与数据集")
     paragraph(doc, "项目目标是利用无人机 RGB 与多光谱影像，将每个有效像素分为 background、crop、weed，为田间杂草识别和精准除草提供区域信息。前期通过 NDVI、NDRE 模拟光谱差异，并用 synthetic 数据跑通分割流程；报告中的主要结论依据真实 WeedMap Tiles 实验。")
@@ -208,15 +208,26 @@ def build():
     ], [3.5, 6, 3.5, 4], 8.8)
     paragraph(doc, "WeedMap common split 共 454 张样本：sparse 13 张、transition 9 张、dense 432 张；VCR 均值 0.7928、中位数 0.9116、最小值 0.0000、最大值 0.9999。dense 占 432 / 454 ≈ 95.15%，sparse 占 13 / 454 ≈ 2.86%，transition 占 9 / 454 ≈ 1.98%。当前绝大多数样本属于高植被覆盖场景，因此继续优化 U-Net / MobileNetV2ShallowUNet 语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的候选路线或后续扩展。0.20 和 0.30 是初始经验阈值。")
 
-    section(doc, 11, "YOLO detection pipeline 的两个阶段")
+    section(doc, 11, "VCR Regression Attention Router")
+    paragraph(doc, "目的：在 weed recognition pipeline 前端，根据场景植被覆盖程度选择后续分支。模型不直接做三分类，而是先从原始 G、R、RE、NIR 四个波段回归连续 VCR，再按 predicted VCR < 0.20、0.20 至 0.30、> 0.30 分别路由到 sparse YOLO、transition 双模型或人工确认、dense semantic segmentation。不输入 NDVI，因为 VCR 标签由 NDVI threshold 生成，直接输入 NDVI 可能只是复现标签规则。")
+    paragraph(doc, "数据准备使用现有 VCR summary，并生成 outputs/vcr_regression_samples.csv；454 条样本全部校验通过。由于 sparse、transition、dense 仅有 13、9、432 张，直接三分类容易全部预测 dense 并获得虚高 accuracy，因此采用连续 VCR regression。")
+    table(doc, ["模型", "正式设置", "关键结果"], [
+        ("Tiny CNN", "30 epochs × 3 seeds", "MAE 0.1014 ± 0.0101"),
+        ("SE-Tiny CNN", "30 epochs × 3 seeds", "MAE 0.1055 ± 0.0044"),
+        ("CBAM-Tiny CNN", "30 epochs × 3 seeds", "MAE 0.0923 ± 0.0133；sparse recall 0.1111 ± 0.1925"),
+    ], [4.0, 5.0, 8.0], 8.2)
+    paragraph(doc, "正式实验实际使用 Huber loss（delta=0.1），各 run 按 validation MAE 选择 best checkpoint。CBAM-Tiny CNN 的平均 MAE 最低，说明 attention 可能有助于学习植被覆盖程度；但 non-dense 样本太少，validation sparse 仅 3 张，每错一张都会造成很大波动，且特定 subset 与相邻帧可能带来空间数据泄漏风险。")
+    paragraph(doc, "结论：VCR regression attention router 的探索性实验有效完成，但 sparse recall 仍然不足，当前不能替代 NDVI-VCR 零训练规则，也不能作为部署模块。项目主线仍是 dense vegetation 场景下的 MobileNetV2ShallowUNet + boundary weighted CE r5_w4 语义分割；YOLO 是 sparse 场景候选路线，VCR router 的长期作用是连接两条分支。后续需增加 sparse / transition 样本，并采用 repeated stratified cross-validation 和 subset-level holdout。")
+
+    section(doc, 12, "YOLO detection pipeline 的两个阶段")
     doc.add_heading("A Detection Dataset 构建阶段", level=2)
     paragraph(doc, "WeedMap semantic mask → target mask → connected components → component bbox → bbox statistics → visualization / statistical analysis → dataset bbox filtering rules → YOLO labels → Detection Dataset。")
-    paragraph(doc, "这一阶段的 filtering 是数据集构建阶段的 bbox 清洗：先统计并可视化连通域候选框，再根据 bbox filtering rules 从 semantic mask 自动生成较合理的 YOLO 训练标签。")
+    paragraph(doc, "WeedMap 原始标签没有 instance identity。connected component 只能近似生成 bbox：稀疏场景中的独立小 component 可能接近单株或单簇；密集粘连区域的大 component 可能包含多株植株或片状杂草，不能直接解释为单株。这一阶段的 filtering 是训练标签构建阶段的 bbox 清洗，应结合 width、height、area、aspect ratio 和 bbox/image area ratio 分布及框叠加可视化确定规则，避免误删真实小 weed。")
     doc.add_heading("B YOLO 训练与推理阶段", level=2)
     paragraph(doc, "Detection Dataset → YOLOv8n smoke test / training → network candidate predictions → confidence filtering → NMS → final bounding boxes。")
-    paragraph(doc, "YOLO 网络输出候选框、类别和置信度；confidence filtering 去掉低置信度预测框，NMS 去掉高度重叠的重复预测框。两者属于 inference post-processing，不属于 backbone，也不同于 A 阶段用于生成训练标签的 dataset bbox filtering。")
+    paragraph(doc, "YOLO 网络输出候选框、类别和置信度；confidence filtering 去掉低置信度预测框，NMS 去掉高度重叠的重复预测框。两者属于 inference post-processing，不属于 backbone，也不同于 A 阶段用于生成训练标签的 dataset bbox filtering。当前 YOLOv8n 验证的是 mask → connected components → bbox → detection dataset → training/inference 流程，不是 MobileNetV3-YOLOv3 复现。")
 
-    section(doc, 12, "YOLO bbox 分布与标签局限")
+    section(doc, 13, "YOLO bbox 分布与标签局限")
     paragraph(doc, "当前 crop+weed YOLO baseline 检测数据集的 bbox 统计如下。YOLO labels 由 WeedMap semantic mask 的 target mask 和 connected components 自动生成，不是人工标注的 instance bbox。")
     table(doc, ["统计项", "结果"], [
         ("Total boxes", "19,443"),
@@ -225,29 +236,36 @@ def build():
         ("Mean boxes per image", "42.83"),
         ("Min / median / max boxes per image", "0 / 44 / 120"),
     ], [9, 8], 8.8)
-    paragraph(doc, "连通域框只是实例目标的近似标签。稀疏场景中的独立小框可能接近单株或单簇；大面积粘连 component 可能包含多株植物或片状杂草，不能直接解释为单株植物。bbox 分布统计和可视化用于判断数据集阶段的过滤规则。")
+    paragraph(doc, "统计由 analyze_yolo_bbox_statistics.py 生成，用于评估 min-area、max-area-ratio、min-width 和 min-height 等规则。连通域框只是实例目标的近似标签；bbox 分布统计与可视化用于判断数据集阶段的过滤规则，不会自动修改标签，也不能替代人工 instance annotations。")
 
-    section(doc, 13, "YOLOv8n r020 与 r010 大框过滤对比")
-    paragraph(doc, "两组 crop+weed YOLOv8n 实验仅调整数据集构建阶段的 max-box-area-ratio：r020 为 0.20，r010 为 0.10。下表列出验证集 weed 类指标。")
-    table(doc, ["设置", "Max area ratio", "Weed P", "Weed R", "Weed mAP50", "Weed mAP50-95"], [
-        ("r020", "0.20", "0.470", "0.538", "0.457", "0.212"),
-        ("r010", "0.10", "0.482", "0.530", "0.460", "0.215"),
-    ], [2.4, 2.8, 2.4, 2.4, 3.4, 3.6], 8)
-    paragraph(doc, "r010 的 weed mAP50 和 mAP50-95 分别提高 0.003，weed recall 下降 0.008。提升幅度有限；r010 可作为当前 YOLO 候选设置，但不能认为它显著优于 r020。")
+    section(doc, 14, "YOLOv8n bbox filtering 对比")
+    paragraph(doc, "r020、r015、r010 均使用 YOLOv8n、5 epochs、imgsz=480、batch=4、device=mps、seed=0，以及相同的 363/91 train/validation images。仅调整数据集构建阶段的 max-box-area-ratio；min-area=80、min-box-width=6、min-box-height=6 保持不变。")
+    table(doc, ["设置", "类别", "P", "R", "mAP50", "mAP50-95"], [
+        ("r020", "all", "0.498", "0.594", "0.526", "0.291"),
+        ("r020", "crop", "0.525", "0.650", "0.595", "0.370"),
+        ("r020", "weed", "0.470", "0.538", "0.457", "0.212"),
+        ("r015", "all", "0.508", "0.587", "0.530", "0.297"),
+        ("r015", "crop", "0.522", "0.672", "0.616", "0.387"),
+        ("r015", "weed", "0.492", "0.505", "0.445", "0.206"),
+        ("r010", "all", "0.505", "0.591", "0.531", "0.296"),
+        ("r010", "crop", "0.527", "0.652", "0.601", "0.376"),
+        ("r010", "weed", "0.482", "0.530", "0.460", "0.215"),
+    ], [2.4, 2.4, 2.5, 2.5, 3.1, 4.0], 7.5)
+    paragraph(doc, "相对 r020，r010 的 weed mAP50 和 mAP50-95 均提高 0.003，weed recall 下降 0.008。r015 的 all mAP50 与 r010 几乎持平、mAP50-95 略高，但 weed recall 和 weed mAP 均低于 r010。综合整体与 weed 指标，r010 保留为当前最佳过滤设置；三组差异很小，不能声称过滤阈值带来显著提升。")
 
-    section(doc, 14, "YOLO weed-only 与 crop+weed 对照")
+    section(doc, 15, "YOLO weed-only 与 crop+weed 对照")
     paragraph(doc, "在 r010 数据集过滤设置下比较两类检测与只检测 weed。下表均为验证集 weed 类指标。")
     table(doc, ["设置", "Weed P", "Weed R", "Weed mAP50", "Weed mAP50-95"], [
         ("crop+weed r010", "0.482", "0.530", "0.460", "0.215"),
         ("weed-only r010", "0.431", "0.488", "0.421", "0.182"),
     ], [4.6, 2.5, 2.5, 3.6, 3.8], 8.2)
-    paragraph(doc, "当前设置下，weed-only 的四项 weed 指标均未超过 crop+weed。保留 crop 类可能有助于模型学习作物行结构以及 weed/crop 区分；这一解释尚需进一步验证。")
+    paragraph(doc, "当前数据构建方式、YOLOv8n、5 epochs、seed=0 条件下，weed-only 的四项 weed 指标均未超过 crop+weed。保留 crop 类可能有助于模型学习作物行结构以及 weed/crop 区分，但这不构成对 weed-only 路线的最终否定；crop+weed r010 作为主要检测设置，weed-only r010 作为对照记录。")
 
-    section(doc, 15, "YOLO 预测可视化与 confidence threshold")
-    paragraph(doc, "visualize_yolo_predictions.py 用于比较 crop+weed r010 与 weed-only r010 在同一 validation sample 上的 ground truth 和预测框。sample index=0 的可视化中，crop+weed r010 的预测框数量更克制、输出更干净；weed-only r010 更容易产生密集 weed 候选框。这是单张样本的定性观察，整体效果仍以验证集指标为准。")
-    paragraph(doc, "将 conf threshold 从 0.25 提高到 0.40 后，低置信度预测框减少，可视化更干净。提高 conf 可能减少误检，也可能增加漏检，因此不能直接认为 0.40 是最优阈值。conf filtering 与 NMS 均在推理后处理阶段执行，不改变 backbone 或数据集 bbox 过滤规则。")
+    section(doc, 16, "YOLO 预测可视化与 confidence threshold")
+    paragraph(doc, "visualize_yolo_predictions.py 在同一 validation sample（sample index=0）上并列展示 RGB、crop+weed r010 ground truth/prediction、weed-only r010 ground truth/prediction。crop+weed r010 的预测框相对更克制，weed-only r010 更容易产生密集候选框或重复框。该观察仅来自单张样本，不能替代整体验证集指标。")
+    paragraph(doc, "将 confidence threshold 从 0.25 提高到 0.40 后，低置信度框明显减少，展示更干净；但提高阈值也可能增加漏检，不能把 0.40 直接解释为最佳部署阈值。confidence filtering 与 NMS 均属于推理后处理，不改变 backbone、训练结果或数据集 bbox 过滤规则。")
 
-    section(doc, 16, "YOLO Post-processing Threshold Analysis")
+    section(doc, 17, "YOLO Post-processing Threshold Analysis")
     paragraph(doc, "分析对象为当前最佳 YOLO baseline：YOLOv8n crop+weed r010。使用前 20 张 validation images，比较不同 confidence threshold 和 NMS IoU threshold 对预测框数量、weed 预测框数量及平均置信度的影响。confidence filtering 与 NMS 属于推理后处理，不改变模型训练或数据集 bbox 过滤规则。")
     doc.add_heading("Confidence threshold 是主要影响因素", level=2)
     paragraph(doc, "固定 NMS IoU = 0.50，结果如下。crop 和 weed 框数均为 20 张图像的合计。")
@@ -266,17 +284,31 @@ def build():
         ("0.70", "14.65", "196"),
     ], [4.0, 7.0, 6.0], 8.8)
     paragraph(doc, "在当前前 20 张 validation images 上，NMS IoU threshold 对预测框数量影响较小，而 confidence threshold 更关键。conf=0.40, iou=0.50 可以作为当前 YOLO prediction visualization 的候选设置：它比 conf=0.25 更干净，同时不像 conf=0.50 那样过度减少预测框。")
-    paragraph(doc, "限制：该分析只统计预测框数量和平均置信度，没有直接计算 TP、FP、FN。因此不能说明 conf=0.40 是最终最优阈值。最终阈值仍需要结合人工可视化、PR/F1 曲线或验证集 detection metrics 判断。")
+    paragraph(doc, "限制：前 20 张图分析只统计预测框数量和平均置信度，没有直接计算 TP、FP、FN，因此不能说明 conf=0.40 是最终最优阈值。")
+    doc.add_heading("完整验证集 PR F1 sweep", level=2)
+    paragraph(doc, "r010 best checkpoint 的平均 F1 在 conf≈0.164 达到最高值 0.544；crop 与 weed 的最佳 F1 阈值分别约为 0.164 和 0.169。conf=0.25/0.30/0.40/0.50 的平均 F1 分别为 0.509、0.466、0.364、0.247。conf=0.40 的平均 precision 约 0.747，但平均 recall 仅约 0.241，因此只适合作为干净展示候选；需要平衡 precision/recall 时应从 conf≈0.16 开始，再结合误喷与漏喷成本校准。当前 CPU 完整验证 inference 约为 10.4 ms/image。")
 
-    section(doc, 17, "当前 YOLO 阶段结论与后续规划")
-    paragraph(doc, "当前最佳 YOLO 检测 baseline 为 YOLOv8n crop+weed r010。以下为验证集 all-class detection metrics 及模型规模，后续可作为 MobileNetV3-YOLOv8n 轻量化研究的对照基线。")
-    table(doc, ["Precision", "Recall", "mAP50", "mAP50-95", "Params", "GFLOPs", "Model size"], [
-        ("0.50539", "0.58950", "0.53062", "0.29557", "≈ 3.01M", "≈ 4.61", "≈ 6.21 MB"),
-    ], [2.3, 2.3, 2.2, 2.6, 2.4, 2.3, 2.9], 7.7)
-    paragraph(doc, "检测支线已完成 bbox 分布统计、r020/r010 大框过滤对比、weed-only 对照、prediction visualization 和 post-processing threshold analysis。WeedMap common split 中 dense vegetation samples 占多数，因此项目主线仍是 MobileNetV2ShallowUNet + boundary weighted CE r5_w4 语义分割：Pixel accuracy 96.98% ± 0.24%，Mean IoU 76.71% ± 0.55%，Weed IoU 59.82% ± 0.64%。YOLO 检测支线作为 sparse vegetation scenarios 的候选路线，也是后续 MobileNetV3-YOLOv8n 轻量化检测研究的基础。")
-    paragraph(doc, "后续可研究 MobileNetV3-YOLOv8n 轻量化变体：用 MobileNetV3-style backbone 改造 YOLOv8n 的特征提取部分，保留 YOLOv8 Neck、Detection Head 和 anchor-free detection framework。该变体目前尚未实现；后续需在一致条件下对比检测指标、参数量、GFLOPs、模型大小和推理速度。")
+    section(doc, 18, "YOLO lightweight baseline 与 MobileNetV3 优化")
+    doc.add_heading("YOLOv8n lightweight baseline metrics", level=2)
+    paragraph(doc, "下表汇总四个 5 epochs runs。检测指标取 results.csv 最后一轮 all-class 值，Params、GFLOPs（imgsz=480）和 model size 取 best.pt；crop+weed 与 weed-only 的类别口径不同，不宜直接用 all-class 指标比较检测效果。")
+    table(doc, ["Run", "类别", "P", "R", "mAP50", "mAP50-95", "Params", "GFLOPs", "Size"], [
+        ("r020", "crop+weed", "0.49736", "0.59299", "0.52611", "0.29074", "3,011,238", "4.6084", "6.214 MB"),
+        ("r015", "crop+weed", "0.50758", "0.58699", "0.53032", "0.29651", "3,011,238", "4.6084", "6.214 MB"),
+        ("r010", "crop+weed", "0.50539", "0.58950", "0.53062", "0.29557", "3,011,238", "4.6084", "6.214 MB"),
+        ("weed-only r010", "weed-only", "0.43149", "0.48721", "0.42087", "0.18213", "3,011,043", "4.6078", "6.214 MB"),
+    ], [2.6, 1.9, 1.4, 1.4, 1.7, 2.0, 2.1, 1.6, 2.0], 6.8)
+    paragraph(doc, "当前最佳 YOLO baseline 是 crop+weed r010：mAP50=0.53062、mAP50-95=0.29557、约 3.01M Params、4.61 GFLOPs、6.21 MB。")
+    doc.add_heading("MobileNetV3 Small YOLOv8 optimization workflow", level=2)
+    paragraph(doc, "已实现 MobileNetV3-Small backbone，输出 P3/8、P4/16、P5/32 特征，后接 YOLOv8-style PAN-FPN 与 anchor-free Detect head。backbone 加载官方 ImageNet 预训练权重，模型入口显式完成 ImageNet mean/std 归一化。训练采用两阶段方案：冻结 backbone 5 epochs 预热新 neck/head，再从最佳 warm-up 权重解冻全模型训练 20 epochs。")
+    table(doc, ["模型", "P", "R", "mAP50", "mAP50-95", "Params", "GFLOPs", "Size", "CPU"], [
+        ("YOLOv8n r010", "0.5049", "0.5909", "0.5306", "0.2956", "3.01M", "4.61", "6.21 MB", "10.4 ms"),
+        ("MobileNetV3 初始 5 ep", "0.2251", "0.2594", "0.1284", "0.0325", "2.39M", "2.55", "5.04 MB", "25–41 ms"),
+        ("MobileNetV3 两阶段", "0.4773", "0.5269", "0.4810", "0.2106", "2.39M", "2.55", "5.04 MB", "40.8 ms"),
+    ], [4.0, 1.2, 1.2, 1.5, 1.8, 1.8, 1.3, 1.7, 2.1], 6.6)
+    paragraph(doc, "修正归一化并完成两阶段训练后，mAP50 从 0.1284 恢复到 0.4810。相对 YOLOv8n r010，参数量、GFLOPs 和模型文件分别减少约 20.6%、44.7%、18.9%，但 mAP50 与 mAP50-95 仍分别低 0.0496 和 0.0850；当前 CPU inference 40.8 ms/image，约为 baseline 的 3.9 倍。轻量化体积和理论计算量目标已达到，但精度与当前 CPU latency 尚未超过 baseline，因此暂不替换 YOLOv8n r010。后续应在目标硬件重新测速，并继续研究 neck/head 与高 IoU 定位精度。")
+    paragraph(doc, "检测支线已完成 detection dataset 构建、bbox statistics、r020/r015/r010 过滤对比、weed-only 对照、prediction visualization、后处理阈值分析、lightweight baseline 汇总和 MobileNetV3 两阶段优化。由于 common split 以 dense vegetation 为主，项目主线仍是 MobileNetV2ShallowUNet + boundary weighted CE r5_w4 语义分割；YOLO 作为 sparse 场景候选路线。")
 
-    section(doc, 18, "YOLO / U-Net 路线选择标准")
+    section(doc, 19, "YOLO / U-Net 路线选择标准")
     paragraph(doc, "无人机多光谱图像 → NDVI / 植物-土壤区分指标 → 计算 VCR → 判断 sparse / transition / dense → 选择定位或区域分割路线。")
     table(doc, ["VCR 场景", "候选路线", "除草用途"], [
         ("sparse", "YOLO", "单株或单簇定位，点状精准除草"),
@@ -285,11 +317,12 @@ def build():
     ], [3, 6.8, 7.2], 8.6)
     paragraph(doc, "common split 中 dense 占约 95.15%，因此当前阶段以 U-Net / MobileNetV2ShallowUNet 语义分割为主路线有数据依据。YOLO 已完成初步检测对照，适合作为低覆盖稀疏场景的候选路线或后续扩展；尚无与语义分割模型在相同条件下的正式效果对比。")
 
-    section(doc, 19, "给老师汇报用总结")
+    section(doc, 20, "给老师汇报用总结")
     paragraph(doc, "老师，目前我已经完成了从模拟数据到真实 WeedMap 多光谱无人机数据的完整语义分割流程。前期我先用 NDVI、NDRE 做了作物、杂草和土壤的光谱差异模拟，之后用 synthetic 数据训练 U-Net，发现普通 CE 会忽视 weed，加入 class weights 后 weed IoU 大幅提升。接着我整理了真实 WeedMap Tiles 数据并完成标签映射验证；本地数据中 color 标签的类别语义最明确，因此 Dataset 从 GroundTruth_color 生成 0/1/2 标签，并把 mask=255 作为 ignore 区域。严格公平的 RGB 与 multispectral 对比使用相同的 454 个样本，其中 train 363 个、val 91 个。Multispectral 的 mean IoU 和 weed IoU 均高于 RGB，说明多光谱通道对杂草识别更有帮助。")
     paragraph(doc, "在真实数据实验中，Weighted CE 是最稳定的基础 loss。进一步分析 sample index=0 后发现，5px 边界区域包含 Weighted CE 的 95.18% 错误，因此我加入了 boundary weighted CE。SmallUNet 上 boundary weighted CE r5_w4 的三 seed 平均 Mean IoU 达到 75.17%，Weed IoU 达到 58.29%。之后我实现了 MobileNetV2ShallowUNet 方案 A，它不是论文完整 MobileNetV2-U-Net 复现，而是浅层 MobileNetV2-style encoder 改造，保留当前两级 U-Net decoder。该模型在 weighted CE 下已经优于原 SmallUNet。进一步将 MobileNetV2ShallowUNet 与 boundary weighted CE r5_w4 结合后，三 seed 平均 Mean IoU 达到 76.71% ± 0.55%，Weed IoU 达到 59.82% ± 0.64%，是目前最好的结果。说明浅层 MobileNetV2-style encoder 与 boundary-aware loss 可以叠加提升，尤其对 weed 类识别更有帮助。")
     paragraph(doc, "另外，我新增了一个基于植被覆盖率 VCR 的模型选择指标。通过 NDVI 区分植物与土壤，并计算每张图像的植被覆盖率。统计结果显示 WeedMap common split 中 dense 样本占 95.15%，说明当前数据集以密集植被覆盖场景为主，因此继续优化 U-Net / MobileNetV2ShallowUNet 这类语义分割模型是合理的；YOLO 更适合作为低覆盖稀疏场景下的补充路线，用于单株或单簇定位和点状精准除草。")
-    paragraph(doc, "YOLO 检测支线现已完成 bbox 统计、r020/r010 大框过滤实验、weed-only 对照及预测可视化。当前最佳 YOLOv8n crop+weed r010 baseline 的验证集 all-class Precision 为 0.50539、Recall 为 0.58950、mAP50 为 0.53062、mAP50-95 为 0.29557；参数量约 3.01M、GFLOPs 约 4.61、模型大小约 6.21 MB。新增的前 20 张验证图像阈值分析表明，confidence threshold 比 NMS IoU threshold 更影响预测框数量；conf=0.40、iou=0.50 可作为当前可视化候选，但最终阈值需要结合 TP、FP、FN 相关评估。后续可研究 MobileNetV3-YOLOv8n 轻量化检测；在 dense 样本占多数的 common split 上，语义分割仍是当前项目主线。")
+    paragraph(doc, "VCR regression attention router 已完成 Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN 的 30 epochs × 3 seeds 正式实验。CBAM-Tiny CNN 的 MAE 最低，为 0.0923 ± 0.0133，但 sparse recall 仅 0.1111 ± 0.1925。该实验验证了从原始 G/R/RE/NIR 回归连续 VCR 的初步可行性，但受 non-dense 样本极少和空间数据泄漏风险限制，当前不能替代 NDVI-VCR 规则，也不能部署；它用于未来连接 segmentation 与 detection 两条分支。")
+    paragraph(doc, "YOLO 检测支线已完成 mask-to-bbox 数据构建、bbox 统计、r020/r015/r010 过滤对比、weed-only 对照、prediction visualization、后处理阈值分析和 lightweight baseline 汇总。当前最佳 YOLOv8n crop+weed r010 的 mAP50 为 0.53062、mAP50-95 为 0.29557，约 3.01M Params、4.61 GFLOPs、6.21 MB。前 20 张图的框数分析显示 confidence threshold 比 NMS IoU 更影响输出数量；完整验证集平均 F1 的最佳起点约为 conf=0.16，conf=0.40 只适合较干净的展示。MobileNetV3-Small-YOLOv8 经归一化修正和 5+20 epochs 两阶段训练后达到 mAP50=0.4810、mAP50-95=0.2106，参数量和 GFLOPs 分别减少约 20.6% 和 44.7%，但精度仍低、当前 CPU inference 反而更慢，因此不替换 r010 baseline。")
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     doc.save(OUTPUT)

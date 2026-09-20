@@ -64,15 +64,17 @@ YOLO 支线的标签由 **semantic mask → connected components → bbox → YO
 - **Sparse vegetation：**单株或单簇目标相对独立，更容易转为 bbox；YOLO detection 可用于目标定位和点喷。
 - **当前路线：**WeedMap common split 中 dense 样本占 432 / 454（95.15%），所以当前主线是 segmentation；YOLO 是面向 sparse 场景的辅助路线，不替代分割主线。
 
-## 6. VCR regression-based scene density router plan
+## 6. VCR regression attention router
 
-下一阶段计划构建 **VCR Regression-based Scene Density Router（基于 VCR 回归的稀疏/密集场景路由模块）**。输入为原始 `G/R/RE/NIR` 四个波段，输出一个连续 predicted VCR；不输入 NDVI，因为监督标签由 NDVI threshold 生成，直接输入 NDVI 会降低实验解释价值。直接计算 NDVI-VCR 的规则保留为零训练 baseline。
+**VCR Regression Attention Router** 已完成首轮正式实验。它位于 weed recognition pipeline 前端，从原始 `G/R/RE/NIR` 四个波段预测连续 VCR，再按 `predicted VCR < 0.20 → sparse → YOLO`、`0.20 ≤ predicted VCR ≤ 0.30 → transition → 双模型或人工确认`、`predicted VCR > 0.30 → dense → segmentation` 路由。不输入 NDVI，因为监督标签由 NDVI threshold 生成，直接输入 NDVI 可能只是复现标签规则；NDVI-VCR 规则保留为零训练 baseline。
 
-候选模型为 Tiny CNN、Tiny CNN + SE 和 Tiny CNN + CBAM，保持训练设置一致并使用 Huber/MAE loss。预测结果按 `VCR < 0.20 → YOLO`、`0.20–0.30 → 双模型或人工确认`、`VCR > 0.30 → segmentation` 路由。
+采用回归而不是三分类，是因为数据极度不平衡：sparse 13、transition 9、dense 432。直接三分类容易全部预测 dense 并获得虚高 accuracy；连续回归能够保留覆盖率信息，并支持后续调整阈值。
 
-当前类别分布为 sparse 13、transition 9、dense 432；validation 分布为 3、3、85。因此评估不能只报告 accuracy，还需报告 MAE、RMSE、sparse/non-dense recall、macro F1、balanced accuracy、PR-AUC、MCC 和 confusion matrix。少数样本集中在 `RedEdge_002`、`RedEdge_004`，需采用 repeated stratified cross-validation、subset-level holdout 和至少 3 seeds，检查相邻帧导致的空间泄漏。
+`outputs/vcr_regression_samples.csv` 已由现有 VCR summary 生成并完成 454 条样本校验，字段包含四波段路径、VCR、scene type、subset 和 split。Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN 均完成 30 epochs × 3 seeds 正式实验。当前代码和正式实验实际使用 Huber loss（`delta=0.1`）。
 
-增强只使用 flip、90-degree rotation 和 mild spectral jitter；不直接 random crop，除非重新计算裁剪区域 VCR。可选 dense/non-dense 二分类 baseline 使用 432/22 样本及初始权重 0.526/10.318，但不同时强力叠加 class weight 与 oversampling。该阶段属于探索性研究，不构成稳定部署验证。
+CBAM-Tiny CNN 的平均 MAE 最低，为 **0.0923 ± 0.0133**，说明 attention 可能有助于学习植被覆盖程度；但 sparse recall 只有 **0.1111 ± 0.1925**，尚不能稳定识别 sparse 场景。non-dense 样本数量太少，validation sparse 仅 3 张，每错一张都会产生很大波动；少数样本还可能集中在特定 subset，相邻帧相似带来空间数据泄漏风险。因此当前结果属于探索性实验，不能作为稳定部署路由器。
+
+VCR regression attention router 已经作为 scene density routing 的初步实验完成。CBAM-Tiny CNN 在 VCR 回归误差上表现最好，但 sparse recall 仍然不足，因此当前不能替代基于 NDVI-VCR 的零训练规则，也不能作为最终部署模块。它现阶段更适合作为扩展数据、改进采样策略和研究 attention-based scene routing 的基础实验。项目主线仍是 dense vegetation 场景下的 semantic segmentation；VCR router 的作用是未来连接 segmentation 与 detection 两条分支，而不是替代它们。
 
 ## 7. Future work
 
@@ -97,12 +99,8 @@ YOLO 支线的标签由 **semantic mask → connected components → bbox → YO
 
 ### D. VCR regression scene router
 
-- 已新增 `prepare_vcr_regression_dataset.py`，并生成 `outputs/vcr_regression_samples.csv`。
-- manifest 包含 sample ID、split、subset、frame ID、G/R/RE/NIR 路径、连续 VCR 和 scene type；明确排除 NDVI 输入。
-- 文件与标签一致性检查通过：454 条记录，train/val=363/91，sparse/transition/dense=13/9/432，共 5 个 common-split subsets。
-- 已实现 Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN，参数量分别为 72,513、75,341、75,635；三种结构前向检查通过。
-- 训练入口支持 Huber/MAE、scene weighting、规定的数据增强、manifest split/subset holdout，以及完整回归与路由指标；三种模型的 1-epoch smoke test 均已通过。
-- 已完成 manifest split 上的 30 epochs、三 seed 正式对比。Tiny/SE/CBAM 的 MAE 分别为 0.1014±0.0101、0.1055±0.0044、0.0923±0.0133。
-- CBAM 平均 MAE 最低，但 sparse recall 仅 0.1111±0.1925，且三 seed 中两个仍为 0；Tiny 与 SE 的 sparse recall 均为 0。
-- 当前 validation majority-dense baseline 已有约 93.41% accuracy，因此模型约 92%–93% accuracy 不代表 routing 成功。attention 尚未稳定解决少数场景召回问题，不能作为部署结论。
-- 下一步进行 threshold calibration、subset-level holdout 和受控的少数区间采样/损失对比。
+- 增加 sparse / transition 样本。
+- 采用 repeated stratified cross-validation。
+- 采用 subset-level holdout 测试泛化能力，并重点检查相邻帧造成的空间数据泄漏。
+- 优先报告 MAE、RMSE、balanced accuracy、macro F1、MCC、sparse recall 和 confusion matrix；accuracy 仅作为辅助指标。
+- 后续可继续比较 Tiny CNN、SE、CBAM，但需要更多 non-dense 样本支撑结论。

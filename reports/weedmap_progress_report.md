@@ -1,7 +1,7 @@
 # 基于无人机多光谱影像的作物、杂草、土壤/背景区分实验进度报告
 
 **项目：** cv-weedmap-segmentation  
-**当前阶段：** Synthetic 与真实 WeedMap 基线、loss 对比、边界分析、MobileNetV2ShallowUNet 方案 A 及其 boundary weighted CE r5_w4 三 seed 实验完成；已统计 common split 的 VCR 用于路线选择
+**当前阶段：** Synthetic 与真实 WeedMap 基线、loss 对比、边界分析、MobileNetV2ShallowUNet 方案 A 及其 boundary weighted CE r5_w4 三 seed 实验完成；VCR regression attention router 的 30 epochs × 3 seeds 探索性实验完成
 
 ---
 
@@ -732,13 +732,15 @@ WeedMap common split 共 454 张；VCR 均值 0.7928、中位数 0.9116、最小
 
 ### VCR regression-based scene density router
 
-下一阶段计划在整体 pipeline 前端加入 **VCR Regression-based Scene Density Router（基于 VCR 回归的稀疏/密集场景路由模块）**。模块从多光谱 UAV 图像预测连续 VCR，然后根据阈值选择 YOLO detection、semantic segmentation，或对 transition 场景运行双模型/人工确认。采用连续回归而不是 sparse / transition / dense 三分类，可以保留更多覆盖度信息，并允许部署阶段调整路由阈值而无需重新训练。
+**VCR Regression Attention Router** 已完成首轮正式实验。该模块位于 weed recognition pipeline 前端，使用 CNN attention 从原始多光谱影像预测连续 VCR，再按阈值选择 YOLO detection、semantic segmentation，或对 transition 场景运行双模型/人工确认。它不是直接进行 sparse / transition / dense 三分类。
 
-现有 `outputs/weedmap_vegetation_coverage_summary.csv` 已包含每张图像的 VCR、scene type 和 train/val split。数据总量为 454，其中 sparse 13、transition 9、dense 432；validation 中分别只有 3、3、85。直接三分类容易全部预测 dense 并获得虚高 accuracy。
+采用回归而不是三分类，是因为数据极度不平衡：sparse 13、transition 9、dense 432；validation 中分别只有 3、3、85。直接三分类容易全部预测 dense 并获得虚高 accuracy。连续 VCR 回归可以保留覆盖率信息，也便于后续调整路由阈值而无需重新训练分类器。
 
 CNN 输入只使用 `G/R/RE/NIR` 四个原始波段，不输入 NDVI。VCR 标签由 NDVI threshold 生成，若将 NDVI 直接作为输入，网络可能只是复现标签规则，使 attention 对比缺乏解释力。直接计算 NDVI-VCR 的规则保留为零训练强 baseline。
 
-首轮比较 Tiny CNN、Tiny CNN + SE attention 和 Tiny CNN + CBAM attention，保持其余训练条件一致。模型输出一个 predicted VCR scalar，使用 Huber loss 或 MAE loss。路由规则如下：
+数据准备复用 `outputs/weedmap_vegetation_coverage_summary.csv` 中已有的 VCR、scene type、subset 和 split。`prepare_vcr_regression_dataset.py` 已生成并校验 `outputs/vcr_regression_samples.csv`，454 条样本全部通过；字段包括 G/R/RE/NIR 四波段路径、VCR、scene type、subset 和 split，不包含 NDVI path。
+
+正式比较 Tiny CNN、SE-Tiny CNN 和 CBAM-Tiny CNN，保持其余训练条件一致。三种模型均完成 30 epochs × 3 seeds；回归目标为连续 VCR。当前代码与正式实验实际使用 Huber loss（`delta=0.1`），每个 run 按 validation MAE 选择 best checkpoint。路由规则如下：
 
 | Predicted VCR | 场景/处理 | 后续分支 |
 | --- | --- | --- |
@@ -746,25 +748,9 @@ CNN 输入只使用 `G/R/RE/NIR` 四个原始波段，不输入 NDVI。VCR 标�
 | 0.20–0.30 | transition | 双模型或人工确认 |
 | > 0.30 | dense | semantic segmentation |
 
-评估报告 MAE、RMSE，以及阈值化后的 sparse/non-dense recall、macro F1、balanced accuracy、PR-AUC、MCC 和 confusion matrix；accuracy 只作辅助。validation sparse 只有 3 张，sparse recall 每错一张即变化约 33.3%。少数样本主要集中在 `RedEdge_002` 和 `RedEdge_004`，相邻帧可能相似，简单随机划分存在空间泄漏风险；后续使用 repeated stratified cross-validation、subset-level holdout generalization test 和至少 3 个 random seeds。
+#### Three-seed comparison
 
-增强仅采用 horizontal/vertical flip、90-degree rotation 和 mild spectral jitter。除非重新计算裁剪区域 VCR，否则不使用 random crop。可选分类 baseline 使用 dense（432）与 non-dense（22）二分类，初始 class weights 为 0.526 与 10.318，并避免同时强力使用 class weight 和 oversampling。由于 non-dense 只有 22 张，该实验属于 CNN-Attention scene routing 的探索性研究，不能视为稳定部署验证。
-
-#### VCR regression dataset preparation
-
-已新增并实际运行 `prepare_vcr_regression_dataset.py`。脚本以现有 VCR summary 为来源，验证 sample ID、split、VCR 数值范围、scene threshold、重复样本和四波段文件完整性，生成 `outputs/vcr_regression_samples.csv`。输出包含 `sample_id`、`split`、`subset`、`frame_id`、G/R/RE/NIR path、连续 `VCR` 和 `scene_type`，不包含 NDVI path。
-
-实际校验结果为 454 条样本，train 363、val 91；sparse 13、transition 9、dense 432；覆盖 5 个 common-split subsets。该文件作为后续 Tiny CNN、SE-Tiny CNN 和 CBAM-Tiny CNN 的统一数据入口。当前阶段只完成数据准备，没有启动 scene router 训练。
-
-#### Router model and training code
-
-已新增 `vcr_router_models.py`，在同一三阶段轻量 CNN 骨架上实现无 attention、SE 和 CBAM 三种 VCR regressor，参数量分别为 72,513、75,341 和 75,635。所有模型输入 G/R/RE/NIR 四通道，输出 `[0, 1]` 范围内的单个 predicted VCR。
-
-`train_vcr_router.py` 已打通 manifest 加载、全图语义安全增强、Huber/MAE loss、可选 sqrt-inverse scene weighting、manifest split 或 subset-level holdout、best checkpoint 与预测保存。评估输出 MAE、RMSE、accuracy、balanced accuracy、macro F1、sparse/non-dense recall、PR-AUC、MCC 和 confusion matrix。三种结构的前向检查和 1-epoch 小尺寸 smoke test 均通过；smoke test 仅验证工程链路，不作为正式实验结果。
-
-#### Initial three-seed comparison
-
-首轮正式对比使用 manifest split、180×240、30 epochs、batch size 16、Huber loss、sqrt-inverse scene weighting 和 seeds 0/1/2，各 run 按 validation MAE 选择 best checkpoint。结果由 `summarize_vcr_router_experiments.py` 汇总到 `outputs/vcr_router_run_results.csv` 和 `outputs/vcr_router_model_summary.csv`。
+正式对比使用 manifest split、180×240、batch size 16、Huber loss、sqrt-inverse scene weighting 和 seeds 0/1/2。评估覆盖回归与阈值化后的路由效果，优先报告 MAE、RMSE、balanced accuracy、macro F1、MCC、sparse recall 和 confusion matrix，accuracy 仅作为辅助指标。
 
 | 模型 | Params | MAE | RMSE | Accuracy | Balanced accuracy | Sparse recall | Non-dense recall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -772,7 +758,13 @@ CNN 输入只使用 `G/R/RE/NIR` 四个原始波段，不输入 NDVI。VCR 标�
 | SE-Tiny CNN | 75,341 | 0.1055 ± 0.0044 | 0.1715 ± 0.0086 | 92.31% ± 0.00% | 0.3294 ± 0.0000 | 0.0000 ± 0.0000 | 0.0556 ± 0.0962 |
 | CBAM-Tiny CNN | 75,635 | **0.0923 ± 0.0133** | **0.1656 ± 0.0084** | 93.04% ± 2.29% | **0.4392 ± 0.1936** | **0.1111 ± 0.1925** | **0.1667 ± 0.2887** |
 
-CBAM 的平均 MAE 最低，但路由结果不稳定。三个 CBAM seeds 中只有一个 best-MAE checkpoint 检出部分 sparse/non-dense，另外两个 sparse recall 仍为 0；Tiny 和 SE 三 seed sparse recall 全部为 0。全部预测 dense 的 validation majority baseline 已可获得 85/91≈93.41% accuracy，因此模型的总体 accuracy 不能证明有效。当前只能认为 CBAM 有初步回归误差改善迹象，attention 尚未解决极少数场景召回问题；下一步需做 threshold calibration、subset holdout 和少数 VCR 区间再平衡实验。
+CBAM-Tiny CNN 的平均 MAE 最低，为 **0.0923 ± 0.0133**，说明注意力机制可能有助于学习植被覆盖程度；但 sparse recall 只有 **0.1111 ± 0.1925**，当前模型仍不能稳定识别 sparse 场景。non-dense 样本数量太少，validation sparse 只有 3 张，每错一张都会产生约 33.3 个百分点的波动。少数样本可能集中在特定 subset，相邻帧相似，存在空间数据泄漏风险。当前结果属于探索性实验，不能作为稳定部署路由器。
+
+**当前结论：** VCR regression attention router 已经作为 scene density routing 的初步实验完成。CBAM-Tiny CNN 在 VCR 回归误差上表现最好，但 sparse recall 仍然不足，因此当前不能替代基于 NDVI-VCR 的零训练规则，也不能作为最终部署模块。现阶段它更适合作为后续扩展数据、改进采样策略和研究 attention-based scene routing 的基础实验。
+
+当前项目主线仍然是 dense vegetation 场景下的 semantic segmentation。当前最强分割模型仍为 `MobileNetV2ShallowUNet + boundary weighted CE r5_w4`：Pixel accuracy = **96.98% ± 0.24%**、Mean IoU = **76.71% ± 0.55%**、Weed IoU = **59.82% ± 0.64%**。YOLO 检测支线仍作为 sparse vegetation scenarios 的候选路线。VCR router 的作用是未来把 segmentation 和 detection 两条分支连接成完整系统，而不是替代它们。
+
+下一步应增加 sparse / transition 样本，采用 repeated stratified cross-validation，并使用 subset-level holdout 测试泛化能力。后续可继续比较 Tiny CNN、SE、CBAM，但需要更多 non-dense 样本支撑结论；报告继续优先使用 MAE、RMSE、balanced accuracy、macro F1、MCC、sparse recall 和 confusion matrix，accuracy 仅作为辅助指标。
 
 ## 27. YOLO / U-Net 路线选择标准
 
@@ -958,6 +950,8 @@ confidence threshold 是当前比较中影响预测框数量的主要因素：�
 18. `MobileNetV2ShallowUNet` 方案 A 在原 weighted CE 设置下，三 seed 平均 Mean IoU 为 75.86% ± 1.22%、Weed IoU 为 59.03% ± 1.74%。方案 A 是浅层 MobileNetV2-style encoder 改造，不是论文完整 MobileNetV2-U-Net 复现；完整 B1～B17 多尺度版本留作方案 B。
 19. 目前最强语义分割结果来自 `MobileNetV2ShallowUNet + boundary weighted CE r5_w4`，三 seed Mean IoU 为 76.71% ± 0.55%、Weed IoU 为 59.82% ± 0.64%。相对原 SmallUNet + weighted CE baseline 分别提升 1.93 和 2.93 个百分点，说明浅层 MobileNetV2-style encoder 与 boundary-aware loss 可以叠加提升，尤其对 weed 类识别更有帮助。
 20. VCR 统计中，454 张样本有 432 张（约 95.15%）为 dense。当前阶段继续优化语义分割模型是合理的；YOLO 适合作为低覆盖稀疏场景下的补充路线。
+21. VCR regression attention router 已完成 30 epochs × 3 seeds 正式实验。CBAM-Tiny CNN 的 MAE 最低，为 0.0923 ± 0.0133，但 sparse recall 仅 0.1111 ± 0.1925；该结果属于探索性证据，不能替代 NDVI-VCR 零训练规则，也不能部署。
+22. 当前项目主线仍是 dense vegetation 场景下的 semantic segmentation。VCR router 的长期作用是连接 segmentation 和 detection 两条分支，而不是替代它们。
 
 ## 31. 当前项目已完成内容
 
@@ -985,6 +979,7 @@ confidence threshold 是当前比较中影响预测框数量的主要因素：�
 | MobileNetV2ShallowUNet 方案 A | WeedMap common split，multispectral weighted CE，20 epochs，Seed 0/1/2，使用 best checkpoint | 完成 |
 | 方案 A + boundary weighted CE r5_w4 | 三 seed best checkpoint，Mean IoU 76.71% ± 0.55%，Weed IoU 59.82% ± 0.64% | 完成 |
 | VCR 场景评判 | common split 454 张，dense 432 张；形成 sparse / transition / dense 路线标准 | 完成 |
+| VCR regression attention router | Tiny / SE / CBAM，30 epochs × 3 seeds；CBAM MAE 0.0923 ± 0.0133，sparse recall 0.1111 ± 0.1925 | 探索性实验完成，不可部署 |
 | 预测可视化 | 真实样本预测图和 error map | 完成 |
 
 ## 32. 下一步实验计划
@@ -1007,6 +1002,11 @@ confidence threshold 是当前比较中影响预测框数量的主要因素：�
    - 后续更新 Word 报告给导师。
 6. **方案 B**
    - 可考虑完整 B1～B17 和更深的多尺度 Decoder，并与方案 A 对比。
+7. **VCR router 数据与验证**
+   - 增加 sparse / transition 样本；
+   - 采用 repeated stratified cross-validation 和 subset-level holdout 测试泛化能力；
+   - 优先报告 MAE、RMSE、balanced accuracy、macro F1、MCC、sparse recall 和 confusion matrix，accuracy 仅作辅助；
+   - 更多 non-dense 样本到位后，再继续比较 Tiny CNN、SE 和 CBAM。
 
 ### Next-stage experiment plan
 
@@ -1015,6 +1015,8 @@ confidence threshold 是当前比较中影响预测框数量的主要因素：�
 **A. Semantic segmentation main line.** 当前最强设置是 `MobileNetV2ShallowUNet + boundary weighted CE r5_w4`：Mean IoU = 76.71% ± 0.55%，Weed IoU = 59.82% ± 0.64%，Pixel accuracy = 96.98% ± 0.24%。这是目前 WeedMap common split 上最强的语义分割设置；相比 `SmallUNet + weighted CE`，Mean IoU 和 Weed IoU 均有提升。
 
 **B. YOLO detection auxiliary line.** 当前最佳 YOLO baseline 是 `YOLOv8n crop+weed r010`：Precision = 0.50539，Recall = 0.58950，mAP50 = 0.53062，mAP50-95 = 0.29557，Params ≈ 3.01M，GFLOPs ≈ 4.61，Model size ≈ 6.21 MB。检测支线已完成 bbox statistics、r020/r015/r010 对比、weed-only 对照实验、prediction visualization、完整验证集 PR/F1 threshold sweep 和 lightweight baseline summary。
+
+**C. VCR regression attention router.** Tiny CNN、SE-Tiny CNN、CBAM-Tiny CNN 已完成 30 epochs × 3 seeds。CBAM-Tiny CNN 的 MAE 最低，为 0.0923 ± 0.0133，但 sparse recall 仅 0.1111 ± 0.1925，因此当前仅作为连接 segmentation 与 detection 的基础探索，不能替代 NDVI-VCR 规则或用于部署。
 
 #### 2. Short-term next experiments
 
@@ -1036,11 +1038,11 @@ confidence threshold 是当前比较中影响预测框数量的主要因素：�
 
 #### 4. Overall conclusion
 
-当前项目主线仍是语义分割，因为 WeedMap common split 中 dense vegetation samples 占多数。YOLO 检测支线主要作为 sparse vegetation scenarios 的候选路线，以及后续 MobileNetV3-YOLOv8n 轻量化检测研究的基础。
+当前项目主线仍是语义分割，因为 WeedMap common split 中 dense vegetation samples 占多数。YOLO 检测支线主要作为 sparse vegetation scenarios 的候选路线。VCR regression attention router 已完成初步实验，但 sparse recall 不足，当前不能替代 NDVI-VCR 规则或部署；其长期作用是连接 segmentation 与 detection 两条分支。
 
 ## 33. 给导师汇报时可以说的话
 
-老师，目前真实 WeedMap common split 的语义分割主线已按 SmallUNet baseline、三种 loss 对比、边界错误分析、SmallUNet 边界加权损失、MobileNetV2ShallowUNet 方案 A、方案 A 叠加边界加权损失的顺序完成。当前最强结果来自 MobileNetV2ShallowUNet + boundary weighted CE r5_w4：三 seed Mean IoU 为 76.71% ± 0.55%，Weed IoU 为 59.82% ± 0.64%，较原 SmallUNet + weighted CE 分别高 1.93 和 2.93 个百分点。方案 A 是浅层 MobileNetV2-style encoder 改造，不是论文完整 MobileNetV2-U-Net 复现。独立的 VCR 统计显示，454 张样本中有 432 张（约 95.15%）属于 dense 场景，因此当前阶段继续优化语义分割模型是合理的；YOLO 适合作为低覆盖稀疏场景下的补充路线。YOLO 已完成 weed-only vs crop+weed 的 5 epochs 对照，仍需与语义分割模型进行同条件正式对照。
+老师，目前真实 WeedMap common split 的语义分割主线已按 SmallUNet baseline、三种 loss 对比、边界错误分析、SmallUNet 边界加权损失、MobileNetV2ShallowUNet 方案 A、方案 A 叠加边界加权损失的顺序完成。当前最强结果来自 MobileNetV2ShallowUNet + boundary weighted CE r5_w4：三 seed Pixel accuracy 为 96.98% ± 0.24%，Mean IoU 为 76.71% ± 0.55%，Weed IoU 为 59.82% ± 0.64%。VCR regression attention router 也已完成 Tiny、SE、CBAM 三种模型的 30 epochs × 3 seeds 实验；CBAM 的 MAE 最低，为 0.0923 ± 0.0133，但 sparse recall 仅 0.1111 ± 0.1925。由于 non-dense 样本太少且存在潜在空间泄漏，该 router 当前不能替代 NDVI-VCR 规则或部署。项目主线仍是 dense 场景的 semantic segmentation，YOLO 是 sparse 场景候选路线，VCR router 用于未来连接两条分支。
 
 ## Activation function ablation plan
 
